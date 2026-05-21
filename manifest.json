@@ -1,0 +1,40 @@
+{
+  "name": "AirTech Assist",
+  "short_name": "AirTech",
+  "description": "Sistema de gestión de operaciones en tierra para aerolíneas",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#0d1f4a",
+  "theme_color": "#0f2a66",
+  "orientation": "any",
+  "lang": "es",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["business", "productivity"],
+  "shortcuts": [
+    {
+      "name": "Base PUJ — Punta Cana",
+      "short_name": "PUJ",
+      "url": "./index.html?station=PUJ",
+      "icons": [{"src": "icon-192.png", "sizes": "192x192"}]
+    },
+    {
+      "name": "Base SDQ — Santo Domingo",
+      "short_name": "SDQ",
+      "url": "./index.html?station=SDQ",
+      "icons": [{"src": "icon-192.png", "sizes": "192x192"}]
+    }
+  ]
+}

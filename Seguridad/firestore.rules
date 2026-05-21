@@ -1,0 +1,127 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ════════════════════════════════════════════════════════════
+    // FUNCIONES AUXILIARES
+    // ════════════════════════════════════════════════════════════
+
+    // ¿El usuario está autenticado (cualquier método incluyendo anónimo)?
+    function isAuth() {
+      return request.auth != null;
+    }
+
+    // ¿El usuario tiene documento activo en users? (usuario real de airtechassist)
+    function isAirtechassistUser() {
+      return request.auth != null &&
+        exists(/databases/$(database)/documents/airtechassist/config/users/$(request.auth.uid));
+    }
+
+    // ¿Es superadmin?
+    function isSuperAdmin() {
+      return request.auth != null &&
+        request.auth.uid == 'o3DDsHZDVXVGFVEJoACnezsj4wk1';
+    }
+
+    // ¿Es admin o superior?
+    function isAdmin() {
+      return isAirtechassistUser() &&
+        get(/databases/$(database)/documents/airtechassist/config/users/$(request.auth.uid)).data.role
+          in ['superadmin', 'supervisor', 'admin'];
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // USUARIOS — el anónimo solo puede LEER su propio documento
+    // (necesario para el flujo de login antes de autenticar)
+    // ════════════════════════════════════════════════════════════
+    match /airtechassist/config/users/{userId} {
+      // Lectura: usuario registrado de airtechassist O leyendo su propio doc
+      allow read:   if isAirtechassistUser() || (isAuth() && userId == request.auth.uid);
+      // Solo superadmin crea, actualiza y borra usuarios
+      allow create: if isSuperAdmin();
+      allow update: if isSuperAdmin();
+      allow delete: if isSuperAdmin();
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // CONFIGURACIÓN — estaciones, catálogo, etc.
+    // ════════════════════════════════════════════════════════════
+    match /airtechassist/config/{collection}/{id} {
+      allow read:  if isAirtechassistUser() || isSuperAdmin();
+      allow write: if isSuperAdmin();
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // AUDIT LOG
+    // ════════════════════════════════════════════════════════════
+    match /airtechassist/audit/logs/{id} {
+      allow create: if isAirtechassistUser() || isSuperAdmin();
+      allow read:   if isSuperAdmin();
+      allow update, delete: if false;
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // REPORTES — create anónimo permitido (reporte de piloto)
+    // ════════════════════════════════════════════════════════════
+    match /airtechassist/{station}/reports/{id} {
+      allow create: if isAuth();
+      allow read:   if isAirtechassistUser() || isSuperAdmin();
+      allow update: if isAirtechassistUser() || isSuperAdmin();
+      allow delete: if isSuperAdmin();
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // TAREAS (OTs)
+    // ════════════════════════════════════════════════════════════
+    match /airtechassist/{station}/tasks/{id} {
+      allow read:   if isAirtechassistUser() || isSuperAdmin();
+      allow create: if isAdmin() || isSuperAdmin();
+      allow update: if isAirtechassistUser() || isSuperAdmin();
+      allow delete: if isSuperAdmin();
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // TÉCNICOS
+    // ════════════════════════════════════════════════════════════
+    match /airtechassist/{station}/techs/{id} {
+      allow read:  if isAirtechassistUser() || isSuperAdmin();
+      allow write: if isAdmin() || isSuperAdmin();
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // PLANIFICACIÓN
+    // ════════════════════════════════════════════════════════════
+    match /airtechassist/{station}/plans/{id} {
+      allow read:   if isAirtechassistUser() || isSuperAdmin();
+      allow create: if isAdmin() || isSuperAdmin();
+      allow update: if isAirtechassistUser() || isSuperAdmin();
+      allow delete: if isAdmin() || isSuperAdmin();
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // HORARIOS
+    // ════════════════════════════════════════════════════════════
+    match /airtechassist/{station}/schedules/{id} {
+      allow read:  if isAirtechassistUser() || isSuperAdmin();
+      allow write: if isSuperAdmin();
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // HISTORIAL Y DOCUMENTOS
+    // ════════════════════════════════════════════════════════════
+    match /airtechassist/{station}/history/{id} {
+      allow read, write: if isAirtechassistUser() || isSuperAdmin();
+    }
+
+    match /airtechassist/{station}/documents/{id} {
+      allow read, write: if isAirtechassistUser() || isSuperAdmin();
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // BLOQUEO TOTAL — cualquier otra ruta: DENEGADA
+    // ════════════════════════════════════════════════════════════
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
