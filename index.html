@@ -615,8 +615,8 @@
       </div>
 
       <button type="submit" id="form-submit">Crear mi cuenta</button>
-      <div id="form-msg"></div>
     </form>
+    <div id="form-msg"></div>
   </div>
 </section>
 
@@ -705,12 +705,14 @@ async function submitRegistration(e){
     }, { merge: true });
 
     // 5. Notificar por email (sin bloquear)
+    const extraNotes = document.getElementById('r-notes').value || '';
     const params = {
       from_name: fullName, from_email: email, airline_name: airlineName,
       phone: document.getElementById('r-phone').value || '—',
       aircraft: document.getElementById('r-aircraft').value,
       bases: document.getElementById('r-bases').value,
-      plan, notes: document.getElementById('r-notes').value || '—',
+      plan,
+      notes: `CÓDIGO DE EMPRESA: ${clientId}\nURL: https://airtech-assist.web.app/app?client=${clientId}\n\n${extraNotes}`,
       client_id: clientId, to_email: 'bgmconsultor@gmail.com',
     };
     emailjs.send(EJS_SERVICE_ID, EJS_TEMPLATE_ID, params).catch(console.warn);
