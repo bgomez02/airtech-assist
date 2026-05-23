@@ -32,9 +32,8 @@ try {
     .then(() => console.log('✅ Firestore persistence activo'))
     .catch(err => { if (err.code !== 'failed-precondition') console.warn(err); });
 
-  // Identificador de cliente (debe coincidir con AIRLINE_ID en app.js y con firestore.rules)
-  const AIRLINE = 'airtechassist';
-  const root = () => db.collection(AIRLINE);
+  // root() usa AIRLINE_ID dinámico — multi-tenant
+  const root = () => db.collection(window.AIRLINE_ID || 'airtechassist');
 
   // Interfaz que consume app.js / dashboard.js / auto-assign.js
   window.FB = {
@@ -55,7 +54,7 @@ try {
     USERS:   () => root().doc('config').collection('users'),
   };
 
-  console.log('✅ Firebase listo — cliente: ' + AIRLINE);
+  console.log('✅ Firebase listo — cliente: ' + (window.AIRLINE_ID || 'airtechassist'));
 
 } catch (e) {
   console.error('❌ Firebase init error:', e);

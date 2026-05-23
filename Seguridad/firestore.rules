@@ -3,22 +3,18 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     // ════════════════════════════════════════════════════════════
-    // FUNCIONES AUXILIARES
+    // FUNCIONES AUXILIARES — TENANT ORIGINAL (airtechassist)
     // ════════════════════════════════════════════════════════════
 
-    // ¿El usuario está autenticado (cualquier método incluyendo anónimo)?
     function isAuth() {
       return request.auth != null;
     }
 
-    // ¿El usuario tiene documento activo en users identificado por su UID?
-    // (se registra el UID al primer login exitoso con PIN)
     function isAirtechassistUser() {
       return request.auth != null &&
         exists(/databases/$(database)/documents/airtechassist/config/users/$(request.auth.uid));
     }
 
-    // ¿Es superadmin? — UID leído del documento /airtechassist/config (no hardcodeado)
     function isSuperAdmin() {
       return request.auth != null &&
         exists(/databases/$(database)/documents/airtechassist/config) &&
@@ -26,7 +22,6 @@ service cloud.firestore {
           == request.auth.uid;
     }
 
-    // ¿Es admin o superior?
     function isAdmin() {
       return isAirtechassistUser() &&
         get(/databases/$(database)/documents/airtechassist/config/users/$(request.auth.uid)).data.role
@@ -34,22 +29,45 @@ service cloud.firestore {
     }
 
     // ════════════════════════════════════════════════════════════
-    // DOCUMENTO RAÍZ DE CONFIG — /airtechassist/config
-    // Contiene el campo superadminUid (y otros settings globales).
-    // Cualquier auth puede leerlo (las reglas lo necesitan).
-    // Escribir solo desde Firebase Console / Admin SDK.
+    // FUNCIONES AUXILIARES — MULTI-TENANT (nuevos clientes)
     // ════════════════════════════════════════════════════════════
+
+    function getClientId(uid) {
+      return get(/databases/$(database)/documents/registry/$(uid)).data.clientId;
+    }
+
+    function isMember(clientId) {
+      return request.auth != null &&
+        exists(/databases/$(database)/documents/registry/$(request.auth.uid)) &&
+        getClientId(request.auth.uid) == clientId;
+    }
+
+    function isMemberAdmin(clientId) {
+      return isMember(clientId) &&
+        get(/databases/$(database)/documents/$(clientId)/config/users/$(request.auth.uid)).data.role
+          in ['superadmin', 'admin', 'supervisor'];
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // REGISTRO GLOBAL — uid → clientId
+    // ════════════════════════════════════════════════════════════
+    match /registry/{uid} {
+      allow read:   if request.auth != null && request.auth.uid == uid;
+      allow create: if request.auth != null && request.auth.uid == uid
+                    && request.resource.data.keys().hasOnly(['clientId'])
+                    && request.resource.data.clientId is string;
+      allow update, delete: if false;
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // TENANT ORIGINAL — /airtechassist/...
+    // ════════════════════════════════════════════════════════════
+
     match /airtechassist/config {
       allow read:  if isAuth();
       allow write: if false;
     }
 
-    // ════════════════════════════════════════════════════════════
-    // USUARIOS
-    // list: cualquier auth puede listar (necesario para login con PIN)
-    // get:  usuario registrado o el propio documento
-    // update: superadmin O el propio usuario actualizando solo su uid/lastLogin
-    // ════════════════════════════════════════════════════════════
     match /airtechassist/config/users/{userId} {
       allow list:   if isAuth();
       allow get:    if isAirtechassistUser() || isSuperAdmin() ||
@@ -62,11 +80,6 @@ service cloud.firestore {
       allow delete: if isSuperAdmin();
     }
 
-    // ════════════════════════════════════════════════════════════
-    // CONFIGURACIÓN — estaciones, catálogo, etc.
-    // stations y aircraft: lectura con auth (necesaria antes del login)
-    // appConfig ya tiene su propio match arriba
-    // ════════════════════════════════════════════════════════════
     match /airtechassist/config/stations/{id} {
       allow read:  if isAuth();
       allow write: if isSuperAdmin();
@@ -80,18 +93,12 @@ service cloud.firestore {
       allow write: if isSuperAdmin();
     }
 
-    // ════════════════════════════════════════════════════════════
-    // AUDIT LOG
-    // ════════════════════════════════════════════════════════════
     match /airtechassist/audit/logs/{id} {
       allow create: if isAirtechassistUser() || isSuperAdmin();
       allow read:   if isSuperAdmin();
       allow update, delete: if false;
     }
 
-    // ════════════════════════════════════════════════════════════
-    // REPORTES — create anónimo permitido (reporte de piloto)
-    // ════════════════════════════════════════════════════════════
     match /airtechassist/{station}/reports/{id} {
       allow create: if isAuth();
       allow read:   if isAirtechassistUser() || isSuperAdmin();
@@ -99,9 +106,6 @@ service cloud.firestore {
       allow delete: if isSuperAdmin();
     }
 
-    // ════════════════════════════════════════════════════════════
-    // TAREAS (OTs)
-    // ════════════════════════════════════════════════════════════
     match /airtechassist/{station}/tasks/{id} {
       allow read:   if isAirtechassistUser() || isSuperAdmin();
       allow create: if isAdmin() || isSuperAdmin();
@@ -109,17 +113,11 @@ service cloud.firestore {
       allow delete: if isSuperAdmin();
     }
 
-    // ════════════════════════════════════════════════════════════
-    // TÉCNICOS
-    // ════════════════════════════════════════════════════════════
     match /airtechassist/{station}/techs/{id} {
       allow read:  if isAirtechassistUser() || isSuperAdmin();
       allow write: if isAdmin() || isSuperAdmin();
     }
 
-    // ════════════════════════════════════════════════════════════
-    // PLANIFICACIÓN
-    // ════════════════════════════════════════════════════════════
     match /airtechassist/{station}/plans/{id} {
       allow read:   if isAirtechassistUser() || isSuperAdmin();
       allow create: if isAdmin() || isSuperAdmin();
@@ -127,17 +125,11 @@ service cloud.firestore {
       allow delete: if isAdmin() || isSuperAdmin();
     }
 
-    // ════════════════════════════════════════════════════════════
-    // HORARIOS
-    // ════════════════════════════════════════════════════════════
     match /airtechassist/{station}/schedules/{id} {
       allow read:  if isAirtechassistUser() || isSuperAdmin();
       allow write: if isSuperAdmin();
     }
 
-    // ════════════════════════════════════════════════════════════
-    // VUELOS
-    // ════════════════════════════════════════════════════════════
     match /airtechassist/{station}/flights/{id} {
       allow read:   if isAirtechassistUser() || isSuperAdmin();
       allow create: if isAdmin() || isSuperAdmin();
@@ -145,23 +137,111 @@ service cloud.firestore {
       allow delete: if isSuperAdmin();
     }
 
-    // ════════════════════════════════════════════════════════════
-    // CONFIG POR ESTACIÓN (notificaciones, etc.)
-    // ════════════════════════════════════════════════════════════
     match /airtechassist/{station}/config/{id} {
       allow read:  if isAirtechassistUser() || isSuperAdmin();
       allow write: if isSuperAdmin();
     }
 
-    // ════════════════════════════════════════════════════════════
-    // HISTORIAL Y DOCUMENTOS
-    // ════════════════════════════════════════════════════════════
     match /airtechassist/{station}/history/{id} {
       allow read, write: if isAirtechassistUser() || isSuperAdmin();
     }
 
     match /airtechassist/{station}/documents/{id} {
       allow read, write: if isAirtechassistUser() || isSuperAdmin();
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // CLIENTES MULTI-TENANT — /{clientId}/...
+    // Aplica a cualquier colección que no sea airtechassist ni registry
+    // ════════════════════════════════════════════════════════════
+
+    match /{clientId}/config {
+      allow read:  if isMember(clientId);
+      allow write: if isMember(clientId) && isMemberAdmin(clientId);
+    }
+
+    match /{clientId}/config/users/{userId} {
+      allow list:   if isMember(clientId);
+      allow get:    if isMember(clientId);
+      // Primer usuario al registrarse (sin registry previo — se valida por uid)
+      allow create: if request.auth != null && userId == request.auth.uid;
+      allow update: if isMemberAdmin(clientId) ||
+                       (isMember(clientId) && userId == request.auth.uid &&
+                        request.resource.data.diff(resource.data)
+                          .affectedKeys().hasOnly(['uid', 'lastLogin']));
+      allow delete: if isMemberAdmin(clientId);
+    }
+
+    match /{clientId}/config/stations/{id} {
+      allow read:  if isMember(clientId);
+      allow write: if isMemberAdmin(clientId);
+    }
+
+    match /{clientId}/config/aircraft/{id} {
+      allow read:  if isMember(clientId);
+      allow write: if isMemberAdmin(clientId);
+    }
+
+    match /{clientId}/config/{collection}/{id} {
+      allow read:  if isMember(clientId);
+      allow write: if isMemberAdmin(clientId);
+    }
+
+    match /{clientId}/audit/logs/{id} {
+      allow create: if isMember(clientId);
+      allow read:   if isMemberAdmin(clientId);
+      allow update, delete: if false;
+    }
+
+    match /{clientId}/{station}/reports/{id} {
+      allow create: if isAuth();
+      allow read:   if isMember(clientId);
+      allow update: if isMember(clientId);
+      allow delete: if isMemberAdmin(clientId);
+    }
+
+    match /{clientId}/{station}/tasks/{id} {
+      allow read:   if isMember(clientId);
+      allow create: if isMemberAdmin(clientId);
+      allow update: if isMember(clientId);
+      allow delete: if isMemberAdmin(clientId);
+    }
+
+    match /{clientId}/{station}/techs/{id} {
+      allow read:  if isMember(clientId);
+      allow write: if isMemberAdmin(clientId);
+    }
+
+    match /{clientId}/{station}/plans/{id} {
+      allow read:   if isMember(clientId);
+      allow create: if isMemberAdmin(clientId);
+      allow update: if isMember(clientId);
+      allow delete: if isMemberAdmin(clientId);
+    }
+
+    match /{clientId}/{station}/schedules/{id} {
+      allow read:  if isMember(clientId);
+      allow write: if isMemberAdmin(clientId);
+    }
+
+    match /{clientId}/{station}/flights/{id} {
+      allow read:   if isMember(clientId);
+      allow create: if isMemberAdmin(clientId);
+      allow update: if isMember(clientId);
+      allow delete: if isMemberAdmin(clientId);
+    }
+
+    match /{clientId}/{station}/config/{id} {
+      allow read:  if isMember(clientId);
+      allow write: if isMemberAdmin(clientId);
+    }
+
+    match /{clientId}/{station}/history/{id} {
+      allow read, write: if isMember(clientId);
+    }
+
+    match /{clientId}/{station}/documents/{id} {
+      allow read, write: if isMember(clientId);
     }
 
     // ════════════════════════════════════════════════════════════

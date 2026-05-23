@@ -234,9 +234,17 @@ function applyPlanGates(){
 }
 
 // ══ AIRLINE & STATIONS ══════════════════════════════════════════
-const AIRLINE_ID = _cfg.airlineId || 'airtechassist';
+let AIRLINE_ID = _cfg.airlineId || 'airtechassist';
+window.AIRLINE_ID = AIRLINE_ID;
 window._station = '';
 let loginStation = '';
+
+function setClientId(id){
+  if(!id) return;
+  AIRLINE_ID = id;
+  window.AIRLINE_ID = id;
+  sessionStorage.setItem('airtechassist_client', id);
+}
 
 // Stations — se cargan desde Firestore; sin defaults hardcodeados
 let stations = [];
@@ -488,6 +496,10 @@ async function doLogin(){
       }
     }
 
+    // ── Código de empresa para usuarios PIN ──
+    const clientInput=(document.getElementById('login-client')?.value||'').trim().toLowerCase();
+    if(clientInput) setClientId(clientInput);
+
     // ── SUPERVISORES Y TÉCNICOS: Firestore + PIN hasheado ──
     if(!window.FB||!window.FB.USERS){
       err.textContent='Sin conexión Firebase';
@@ -532,6 +544,7 @@ function _loginSuccess(name,role){
   sessionStorage.setItem('airtechassist_role',role);
   sessionStorage.setItem('airtechassist_name',name);
   sessionStorage.setItem('airtechassist_station',loginStation);
+  sessionStorage.setItem('airtechassist_client',AIRLINE_ID);
   document.getElementById('login-screen').style.display='none';
   document.getElementById('main-app').style.display='block';
   const sb=document.getElementById('station-badge');
@@ -1134,7 +1147,7 @@ function initFB(){
         errMsg.textContent='signInAnonymously falló: '+e.code+' — '+e.message; }
     });
   }
-  FB.onAuthStateChanged(null,user=>{
+  FB.onAuthStateChanged(null,async user=>{
     // No user at all — sign in anonymously (first load or signed out)
     if(!user){ _tryAnonSignIn(); return; }
 
@@ -1143,6 +1156,18 @@ function initFB(){
     document.getElementById('uid-label').textContent='ID: '+user.uid.slice(0,8)+'…';
     setStatus(true,'Conectado — tiempo real');
     document.getElementById('loader').classList.add('hide');
+
+    // Restaurar o resolver clientId ANTES de cargar datos
+    const savedClient=sessionStorage.getItem('airtechassist_client');
+    if(savedClient){
+      setClientId(savedClient);
+    } else if(!user.isAnonymous){
+      // Usuario email-auth — buscar clientId en el registro global
+      try{
+        const reg=await FB.db.collection('registry').doc(user.uid).get();
+        if(reg.exists) setClientId(reg.data().clientId);
+      }catch(e){ console.warn('[Auth] registry lookup:', e.message); }
+    }
 
     // Check session
     const savedRole=sessionStorage.getItem('airtechassist_role');

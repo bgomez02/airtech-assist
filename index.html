@@ -10,6 +10,24 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+  <script>
+  (function(){
+    const cfg = {
+      apiKey:            "AIzaSyB2WsDSnOtxU81nlwRvJlF7DrhgANHq3Mg",
+      authDomain:        "airtech-assist.firebaseapp.com",
+      projectId:         "airtech-assist",
+      storageBucket:     "airtech-assist.firebasestorage.app",
+      messagingSenderId: "334675945545",
+      appId:             "1:334675945545:web:f73058130149e69d27b798"
+    };
+    if(!firebase.apps.length) firebase.initializeApp(cfg);
+    window._regDB   = firebase.firestore();
+    window._regAuth = firebase.auth();
+  })();
+  </script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -539,6 +557,16 @@
         </div>
 
         <div class="form-group">
+          <label for="r-password">Contraseña de acceso</label>
+          <input id="r-password" type="password" placeholder="Mínimo 8 caracteres" required minlength="8">
+        </div>
+
+        <div class="form-group">
+          <label for="r-password2">Confirmar contraseña</label>
+          <input id="r-password2" type="password" placeholder="Repite tu contraseña" required minlength="8">
+        </div>
+
+        <div class="form-group">
           <label for="r-aircraft">Cantidad de aeronaves</label>
           <select id="r-aircraft">
             <option value="1-5">1 a 5 aeronaves</option>
@@ -586,7 +614,7 @@
 
       </div>
 
-      <button type="submit" id="form-submit">Enviar solicitud de acceso</button>
+      <button type="submit" id="form-submit">Crear mi cuenta</button>
       <div id="form-msg"></div>
     </form>
   </div>
@@ -622,6 +650,16 @@ function selectPlan(p){
   if(el){ el.checked = true; }
 }
 
+// ── Generar clientId único desde nombre de aerolínea ──────────
+function toClientId(name){
+  const slug = name.toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g,'')
+    .replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')
+    .substring(0,20);
+  const rand = Math.random().toString(36).substring(2,6);
+  return slug + '-' + rand;
+}
+
 // ── Enviar formulario ─────────────────────────────────────────
 async function submitRegistration(e){
   e.preventDefault();
@@ -629,38 +667,79 @@ async function submitRegistration(e){
   const msg = document.getElementById('form-msg');
   const plan = document.querySelector('input[name="r-plan"]:checked')?.value || 'Básico';
 
+  const fullName    = document.getElementById('r-name').value.trim();
+  const email       = document.getElementById('r-email').value.trim();
+  const airlineName = document.getElementById('r-airline').value.trim();
+  const password    = document.getElementById('r-password').value;
+  const password2   = document.getElementById('r-password2').value;
+
+  if(password !== password2){
+    msg.className='err'; msg.textContent='Las contraseñas no coinciden.';
+    msg.style.display='block'; return;
+  }
+
   btn.disabled = true;
-  btn.textContent = 'Enviando...';
+  btn.textContent = 'Creando cuenta...';
   msg.style.display = 'none';
 
-  const params = {
-    from_name:    document.getElementById('r-name').value,
-    from_email:   document.getElementById('r-email').value,
-    airline_name: document.getElementById('r-airline').value,
-    phone:        document.getElementById('r-phone').value || '—',
-    aircraft:     document.getElementById('r-aircraft').value,
-    bases:        document.getElementById('r-bases').value,
-    plan:         plan,
-    notes:        document.getElementById('r-notes').value || '—',
-    to_email:     'bgmconsultor@gmail.com',
-  };
-
   try {
-    await emailjs.send(EJS_SERVICE_ID, EJS_TEMPLATE_ID, params);
+    // 1. Crear cuenta Firebase Auth
+    const cred = await window._regAuth.createUserWithEmailAndPassword(email, password);
+    const uid  = cred.user.uid;
+    const clientId = toClientId(airlineName);
+    const db = window._regDB;
+
+    // 2. Crear registro global uid→clientId
+    await db.collection('registry').doc(uid).set({ clientId });
+
+    // 3. Crear espacio del cliente en Firestore
+    await db.collection(clientId).doc('config').set({
+      airlineName, plan, adminUid: uid, adminEmail: email,
+      clientId, createdAt: Date.now()
+    }, { merge: true });
+
+    // 4. Crear usuario admin del cliente
+    await db.collection(clientId).doc('config').collection('users').doc(uid).set({
+      name: fullName.toUpperCase(), email, role: 'superadmin',
+      active: true, uid, createdAt: Date.now()
+    });
+
+    // 5. Notificar por email (sin bloquear)
+    const params = {
+      from_name: fullName, from_email: email, airline_name: airlineName,
+      phone: document.getElementById('r-phone').value || '—',
+      aircraft: document.getElementById('r-aircraft').value,
+      bases: document.getElementById('r-bases').value,
+      plan, notes: document.getElementById('r-notes').value || '—',
+      client_id: clientId, to_email: 'bgmconsultor@gmail.com',
+    };
+    emailjs.send(EJS_SERVICE_ID, EJS_TEMPLATE_ID, params).catch(console.warn);
+
+    // 6. Mostrar éxito con código de empresa y enlace
+    const loginUrl = `https://airtech-assist.web.app/app?client=${clientId}`;
     msg.className = 'ok';
-    msg.textContent = '¡Solicitud enviada! Te contactaremos en menos de 24 horas.';
+    msg.innerHTML = `
+      <strong>¡Cuenta creada exitosamente!</strong><br>
+      Tu código de empresa es: <strong>${clientId}</strong><br>
+      <a href="${loginUrl}" style="color:#0f2a66;font-weight:700">Ir al panel →</a><br>
+      <small style="color:#64748b">Guarda este enlace y compártelo con tu equipo.</small>
+    `;
     msg.style.display = 'block';
     document.getElementById('reg-form').reset();
     document.getElementById('opt-basic').checked = true;
+
   } catch(err) {
+    let errText = 'Error al crear la cuenta.';
+    if(err.code === 'auth/email-already-in-use') errText = 'Este correo ya está registrado.';
+    else if(err.code === 'auth/weak-password') errText = 'La contraseña debe tener al menos 6 caracteres.';
     msg.className = 'err';
-    msg.textContent = 'Error al enviar. Escríbenos directamente a bgmconsultor@gmail.com';
+    msg.textContent = errText + ' Escríbenos a bgmconsultor@gmail.com si necesitas ayuda.';
     msg.style.display = 'block';
-    console.error('EmailJS:', err);
+    console.error('Registration error:', err);
   }
 
   btn.disabled = false;
-  btn.textContent = 'Enviar solicitud de acceso';
+  btn.textContent = 'Crear mi cuenta';
 }
 
 // ── Smooth scroll para links ancla ────────────────────────────

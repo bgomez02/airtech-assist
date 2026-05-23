@@ -88,6 +88,13 @@
       </div>
     </div>
 
+    <!-- Código de empresa (pre-llenado desde ?client=xxx) -->
+    <input class="login-inp" id="login-client" type="text"
+      placeholder="Código de empresa (ej: arajet)"
+      autocomplete="off" spellcheck="false"
+      style="margin-bottom:8px;font-size:12px;color:#475569"
+      onkeydown="if(event.key==='Enter')document.getElementById('login-name').focus()">
+
     <!-- Name -->
     <input class="login-inp" id="login-name" type="text"
       placeholder="Tu nombre completo" autocomplete="name"
@@ -1089,6 +1096,18 @@
 
 
 
+<script>
+// Pre-llenar código de empresa desde URL ?client=xxx
+(function(){
+  const c = new URLSearchParams(location.search).get('client');
+  if(c){
+    document.addEventListener('DOMContentLoaded', function(){
+      const el = document.getElementById('login-client');
+      if(el) el.value = c.toLowerCase();
+    });
+  }
+})();
+</script>
 <script src="sw-unregister.js"></script>
 
 

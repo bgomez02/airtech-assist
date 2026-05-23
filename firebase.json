@@ -1,4 +1,7 @@
 {
+  "firestore": {
+    "rules": "Seguridad/firestore.rules"
+  },
   "hosting": {
     "public": ".",
     "ignore": ["firebase.json", "**/.*", "**/node_modules/**", "Seguridad/**"],
