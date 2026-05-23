@@ -95,23 +95,44 @@
       style="margin-bottom:8px;font-size:12px;color:#475569"
       onkeydown="if(event.key==='Enter')document.getElementById('login-name').focus()">
 
-    <!-- Name -->
+    <!-- Name / Email -->
     <input class="login-inp" id="login-name" type="text"
-      placeholder="Tu nombre completo" autocomplete="name"
-      oninput="this.value=this.value.toUpperCase();detectSuperAdmin(this.value)"
+      placeholder="Email (admin) o nombre completo (técnico)"
+      autocomplete="username"
+      oninput="detectLoginMode(this.value);detectSuperAdmin(this.value)"
       onkeydown="if(event.key==='Enter')document.getElementById('login-pin').focus()">
-
-    <!-- PIN -->
-    <input class="login-inp" id="login-pin" type="password" maxlength="60"
-      placeholder="Contraseña o PIN de acceso"
-      onkeydown="if(event.key==='Enter')doLogin()"
-      style="margin-top:8px">
+    <div id="login-mode-hint" style="display:none;font-size:10px;color:#1d4ed8;margin-top:4px;background:#eff6ff;padding:5px 10px;border-radius:8px">
+      Admin detectado — ingresa tu contraseña de registro
+    </div>
     <div id="login-superadmin-hint" style="display:none;font-size:10px;color:#7c3aed;margin-top:4px;background:#f5f3ff;padding:5px 10px;border-radius:8px">
       👑 Super Admin detectado — ingresa la contraseña de tu correo
     </div>
 
+    <!-- PIN / Contraseña -->
+    <input class="login-inp" id="login-pin" type="password" maxlength="60"
+      placeholder="Contraseña o PIN de acceso"
+      onkeydown="if(event.key==='Enter')doLogin()"
+      style="margin-top:8px">
+
     <div class="login-err" id="login-err"></div>
     <button class="login-btn" onclick="doLogin()" id="login-btn-main">Ingresar</button>
+
+    <div style="text-align:center;margin-top:8px">
+      <button onclick="showForgotPassword()" style="background:none;border:none;color:#64748b;font-size:11px;cursor:pointer;text-decoration:underline">
+        Olvidé mi contraseña
+      </button>
+    </div>
+
+    <!-- Recuperar contraseña -->
+    <div id="forgot-panel" style="display:none;margin-top:10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:12px">
+      <div style="font-size:12px;color:#475569;margin-bottom:8px;font-weight:600">Recuperar contraseña</div>
+      <input id="forgot-email" class="login-inp" type="email" placeholder="Tu email de registro" style="margin-bottom:8px">
+      <button onclick="sendPasswordReset()" style="width:100%;padding:9px;background:#0f2a66;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">
+        Enviar enlace de recuperación
+      </button>
+      <div id="forgot-msg" style="font-size:11px;margin-top:6px;text-align:center"></div>
+    </div>
+
     <div style="margin-top:12px;font-size:10px;color:#94a3b8">
       🔒 Acceso restringido · Solo personal autorizado<br>
       Contacta a tu supervisor si no tienes PIN

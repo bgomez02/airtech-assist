@@ -496,6 +496,33 @@ async function doLogin(){
       }
     }
 
+    // ── ADMIN DE CLIENTE: Firebase Auth email + contraseña ──
+    if(nameRaw.includes('@')){
+      try{
+        const uc=await firebase.auth().signInWithEmailAndPassword(nameRaw, cred);
+        const uid=uc.user.uid;
+        // Resolver clientId desde el registro global
+        const reg=await FB.db.collection('registry').doc(uid).get();
+        if(!reg.exists){ err.textContent='❌ Cuenta no configurada. Contacta soporte.'; btn.textContent='Ingresar'; btn.disabled=false; return; }
+        setClientId(reg.data().clientId);
+        // Leer perfil del usuario
+        const uDoc=await FB.db.collection(AIRLINE_ID).doc('config').collection('users').doc(uid).get();
+        const uData=uDoc.exists?uDoc.data():{};
+        const name=uData.name||nameRaw.split('@')[0].toUpperCase();
+        const role=uData.role==='superadmin'?'superadmin':(uData.role==='supervisor'||uData.role==='admin')?'supervisor':'tech';
+        if(!loginStation) loginStation=stations[0]?.code||'';
+        clearRL(nameRaw);
+        await auditLog('login_ok',{name,role,station:loginStation});
+        _loginSuccess(name,role); return;
+      }catch(e){
+        failRL(nameRaw);
+        if(e.code==='auth/wrong-password'||e.code==='auth/invalid-credential') err.textContent='❌ Contraseña incorrecta.';
+        else if(e.code==='auth/too-many-requests') err.textContent='🔒 Demasiados intentos. Intenta más tarde.';
+        else err.textContent='❌ '+e.message;
+        btn.textContent='Ingresar'; btn.disabled=false; return;
+      }
+    }
+
     // ── Código de empresa para usuarios PIN ──
     const clientInput=(document.getElementById('login-client')?.value||'').trim().toLowerCase();
     if(clientInput) setClientId(clientInput);
@@ -567,7 +594,38 @@ function detectSuperAdmin(name){
     if(pin){ pin.placeholder='Contraseña de tu correo '+SUPERADMIN_EMAIL; }
   } else {
     if(hint) hint.style.display='none';
-    if(pin){ pin.placeholder='Contraseña o PIN de acceso'; }
+  }
+}
+
+function detectLoginMode(val){
+  const isEmail = val.includes('@');
+  const modeHint = document.getElementById('login-mode-hint');
+  const superHint = document.getElementById('login-superadmin-hint');
+  const pin = document.getElementById('login-pin');
+  if(isEmail && val.trim().toUpperCase()!==SUPERADMIN_NAME){
+    if(modeHint) modeHint.style.display='block';
+    if(superHint) superHint.style.display='none';
+    if(pin) pin.placeholder='Contraseña de tu cuenta';
+  } else {
+    if(modeHint) modeHint.style.display='none';
+    if(pin) pin.placeholder='Contraseña o PIN de acceso';
+  }
+}
+
+function showForgotPassword(){
+  const p=document.getElementById('forgot-panel');
+  if(p) p.style.display=p.style.display==='none'?'block':'none';
+}
+
+async function sendPasswordReset(){
+  const email=(document.getElementById('forgot-email')?.value||'').trim();
+  const msg=document.getElementById('forgot-msg');
+  if(!email){ if(msg) msg.textContent='Ingresa tu email.'; return; }
+  try{
+    await firebase.auth().sendPasswordResetEmail(email);
+    if(msg){ msg.style.color='#166534'; msg.textContent='Enlace enviado. Revisa tu correo.'; }
+  }catch(e){
+    if(msg){ msg.style.color='#dc2626'; msg.textContent='Email no encontrado.'; }
   }
 }
 
