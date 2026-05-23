@@ -186,7 +186,8 @@ const PLAN_CONFIG = {
   },
 };
 
-function currentPlan(){ return (window.APP_CONFIG?.plan||'pro'); }
+let _activePlan = null; // plan cargado desde Firestore del cliente
+function currentPlan(){ return _activePlan || (window.APP_CONFIG?.plan||'pro'); }
 function planCfg(){ return PLAN_CONFIG[currentPlan()]||PLAN_CONFIG.pro; }
 function planAllowsTab(tab){ return planCfg().tabs.includes(tab); }
 
@@ -579,7 +580,13 @@ function _loginSuccess(name,role){
   if(sb) sb.textContent=loginStation;
   const _st=stations.find(s=>s.code===loginStation);
   if(sw) sw.textContent=(_st?.flag||'🛫')+' '+loginStation;
-  applyRole(); initSupabaseUI(); initPlanTab(); subscribeAll(); subscribeUsers(); renderGantt(); loadTaskCatalog(); loadAircraft(); loadFlights(window._station); loadTailAssignments(); loadShiftDefs();
+  // Cargar plan del cliente desde Firestore antes de aplicar restricciones
+  FB.db.collection(AIRLINE_ID).doc('config').get().then(d=>{
+    const planMap={'Gratis':'free','Básico':'basic','Pro':'pro','free':'free','basic':'basic','pro':'pro'};
+    if(d.exists && d.data().plan) _activePlan = planMap[d.data().plan] || d.data().plan;
+    applyRole(); initPlanTab();
+  }).catch(()=>{ applyRole(); initPlanTab(); });
+  initSupabaseUI(); subscribeAll(); subscribeUsers(); renderGantt(); loadTaskCatalog(); loadAircraft(); loadFlights(window._station); loadTailAssignments(); loadShiftDefs();
   // Pre-load current month schedule for auto-assign
   const _now=new Date(); const _mkey=_now.getFullYear()+'-'+String(_now.getMonth()+1).padStart(2,'0'); loadSchedule(_mkey, activeStation());
   const btn=document.getElementById('login-btn-main');
