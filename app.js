@@ -596,11 +596,14 @@ function _loginSuccess(name,role){
 function detectSuperAdmin(name){
   const hint=document.getElementById('login-superadmin-hint');
   const pin=document.getElementById('login-pin');
+  const clientWrap=document.getElementById('login-client-wrap');
   if(name.trim().toUpperCase()===SUPERADMIN_NAME){
     if(hint) hint.style.display='block';
-    if(pin){ pin.placeholder='Contraseña de tu correo '+SUPERADMIN_EMAIL; }
+    if(pin) pin.placeholder='Contraseña de tu correo '+SUPERADMIN_EMAIL;
+    if(clientWrap) clientWrap.style.display='none';
   } else {
     if(hint) hint.style.display='none';
+    if(clientWrap) clientWrap.style.display='';
   }
 }
 

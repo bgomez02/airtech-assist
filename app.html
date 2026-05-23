@@ -89,11 +89,13 @@
     </div>
 
     <!-- Código de empresa (pre-llenado desde ?client=xxx) -->
+    <div id="login-client-wrap">
     <input class="login-inp" id="login-client" type="text"
-      placeholder="Código de empresa (ej: arajet)"
+      placeholder="Código de empresa (opcional para admins)"
       autocomplete="off" spellcheck="false"
       style="margin-bottom:8px;font-size:12px;color:#475569"
       onkeydown="if(event.key==='Enter')document.getElementById('login-name').focus()">
+    </div>
 
     <!-- Name / Email -->
     <input class="login-inp" id="login-name" type="text"
