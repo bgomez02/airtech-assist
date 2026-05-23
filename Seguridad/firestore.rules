@@ -156,8 +156,10 @@ service cloud.firestore {
     // ════════════════════════════════════════════════════════════
 
     match /{clientId}/config {
-      allow read:  if isMember(clientId);
-      allow write: if isMember(clientId) && isMemberAdmin(clientId);
+      allow read:   if isMember(clientId);
+      allow create: if isMember(clientId);
+      allow update: if isMemberAdmin(clientId);
+      allow delete: if false;
     }
 
     match /{clientId}/config/users/{userId} {

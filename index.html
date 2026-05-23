@@ -692,17 +692,17 @@ async function submitRegistration(e){
     // 2. Crear registro global uid→clientId
     await db.collection('registry').doc(uid).set({ clientId });
 
-    // 3. Crear espacio del cliente en Firestore
-    await db.collection(clientId).doc('config').set({
-      airlineName, plan, adminUid: uid, adminEmail: email,
-      clientId, createdAt: Date.now()
-    }, { merge: true });
-
-    // 4. Crear usuario admin del cliente
+    // 3. Crear perfil admin del cliente (primero, para que las reglas lo reconozcan)
     await db.collection(clientId).doc('config').collection('users').doc(uid).set({
       name: fullName.toUpperCase(), email, role: 'superadmin',
       active: true, uid, createdAt: Date.now()
     });
+
+    // 4. Crear documento de configuración del cliente
+    await db.collection(clientId).doc('config').set({
+      airlineName, plan, adminUid: uid, adminEmail: email,
+      clientId, createdAt: Date.now()
+    }, { merge: true });
 
     // 5. Notificar por email (sin bloquear)
     const params = {
@@ -766,6 +766,8 @@ async function submitRegistration(e){
     let errText = 'Error al crear la cuenta.';
     if(err.code === 'auth/email-already-in-use') errText = 'Este correo ya está registrado.';
     else if(err.code === 'auth/weak-password') errText = 'La contraseña debe tener al menos 6 caracteres.';
+    else if(err.code === 'permission-denied') errText = 'Error de permisos en la base de datos.';
+    else errText = 'Error: ' + (err.message || err.code || err);
     msg.className = 'err';
     msg.textContent = errText + ' Escríbenos a bgmconsultor@gmail.com si necesitas ayuda.';
     msg.style.display = 'block';
