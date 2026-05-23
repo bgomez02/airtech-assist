@@ -299,6 +299,7 @@
     <button class="tab"    id="TAB-flights" onclick="switchTab('flights')" style="display:none">✈️ Vuelos</button>
     <button class="tab"    id="TAB-catalog" onclick="switchTab('catalog')" style="display:none">📚 Catálogo</button>
 <button class="tab"    id="TAB-mcc"       onclick="switchTab('mcc')"       style="display:none">🌐 MCC</button>
+<button class="tab"    id="TAB-platform"  onclick="switchTab('platform')"  style="display:none">🏢 Clientes</button>
   </div>
 
   <!-- VIEW GANTT -->
@@ -940,6 +941,44 @@
       </div>
 
       <div id="flights-list"></div>
+    </div>
+  </div>
+
+  <!-- VIEW PLATFORM ADMIN -->
+  <div class="view" id="VIEW-platform">
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;flex-wrap:wrap;gap:10px">
+        <div>
+          <div class="card-title">🏢 Panel de Clientes</div>
+          <div style="font-size:11px;color:#64748b">Gestiona los clientes registrados en AirTech Assist</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <span id="platform-count" style="font-size:12px;color:#64748b"></span>
+          <button onclick="loadPlatformClients()" class="btn btn-blue" style="font-size:12px">↻ Actualizar</button>
+        </div>
+      </div>
+
+      <!-- Stats -->
+      <div id="platform-stats" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:18px"></div>
+
+      <!-- Table -->
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead>
+            <tr style="background:#f8fafc;border-bottom:2px solid #e2e8f0">
+              <th style="text-align:left;padding:10px 12px;font-weight:600;color:#475569">Aerolínea</th>
+              <th style="text-align:left;padding:10px 12px;font-weight:600;color:#475569">Email admin</th>
+              <th style="text-align:left;padding:10px 12px;font-weight:600;color:#475569">Plan</th>
+              <th style="text-align:left;padding:10px 12px;font-weight:600;color:#475569">Registro</th>
+              <th style="text-align:left;padding:10px 12px;font-weight:600;color:#475569">Estado</th>
+              <th style="text-align:left;padding:10px 12px;font-weight:600;color:#475569">Acceso</th>
+            </tr>
+          </thead>
+          <tbody id="platform-tbody">
+            <tr><td colspan="6" style="text-align:center;padding:24px;color:#94a3b8">Cargando clientes...</td></tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   </div>
 

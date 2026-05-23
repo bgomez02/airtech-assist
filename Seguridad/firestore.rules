@@ -49,6 +49,16 @@ service cloud.firestore {
     }
 
     // ════════════════════════════════════════════════════════════
+    // DIRECTORIO CENTRAL DE CLIENTES — solo plataforma admin
+    // ════════════════════════════════════════════════════════════
+    match /platform/clients/list/{clientId} {
+      allow read:   if isSuperAdmin();
+      allow create: if request.auth != null;
+      allow update: if isSuperAdmin();
+      allow delete: if false;
+    }
+
+    // ════════════════════════════════════════════════════════════
     // REGISTRO GLOBAL — uid → clientId
     // ════════════════════════════════════════════════════════════
     match /registry/{uid} {

@@ -717,6 +717,11 @@ function applyRole(){
   // Pestaña Usuarios — solo superadmin
   const tabUsers=document.getElementById('TAB-users');
   if(tabUsers) tabUsers.style.display=canManageUsers?'':'none';
+
+  // Pestaña Clientes — solo el superadmin de la plataforma (bgomez)
+  const tabPlatform=document.getElementById('TAB-platform');
+  const isPlatformAdmin = isSuperAdmin && AIRLINE_ID==='airtechassist';
+  if(tabPlatform) tabPlatform.style.display=isPlatformAdmin?'':'none';
   const btnAddUser=document.getElementById('btn-add-user');
   if(btnAddUser) btnAddUser.style.display=canManageUsers?'flex':'none';
 
@@ -1270,8 +1275,8 @@ function initFB(){
 
 // ══ TABS ══
 function switchTab(n){
-  if(!planAllowsTab(n)){ showUpgradeModal(n); return; }
-  ['gantt','demand','staff','users','plan','mcc','catalog','dashboard','schedule','flights'].forEach(v=>{
+  if(n!=='platform' && !planAllowsTab(n)){ showUpgradeModal(n); return; }
+  ['gantt','demand','staff','users','plan','mcc','catalog','dashboard','schedule','flights','platform'].forEach(v=>{
     const view=document.getElementById('VIEW-'+v);
     const tab=document.getElementById('TAB-'+v);
     if(view) view.classList.toggle('on',v===n);
@@ -1329,6 +1334,7 @@ function switchTab(n){
       renderFlightsView();
     },100);
   }
+  if(n==='platform') loadPlatformClients();
 }
 
 // ══ KPIs ══
@@ -6061,5 +6067,103 @@ async function generateDailyReport(){
   const fileName = 'Reporte_Operacional_'+st+'_'+date+'.pdf';
   doc.save(fileName);
   toast('✅ Reporte PDF generado: '+fileName);
+}
+
+// ══ PLATFORM ADMIN — gestión de clientes ══════════════════════
+
+async function loadPlatformClients(){
+  const tbody=document.getElementById('platform-tbody');
+  const countEl=document.getElementById('platform-count');
+  const statsEl=document.getElementById('platform-stats');
+  if(!tbody) return;
+  tbody.innerHTML='<tr><td colspan="6" style="text-align:center;padding:24px;color:#94a3b8">Cargando...</td></tr>';
+
+  try{
+    const snap=await FB.db.collection('platform').doc('clients').collection('list').orderBy('createdAt','desc').get();
+    const clients=snap.docs.map(d=>({id:d.id,...d.data()}));
+
+    if(countEl) countEl.textContent=clients.length+' cliente'+(clients.length!==1?'s':'');
+
+    // Stats
+    const byPlan={Gratis:0,Básico:0,Pro:0};
+    clients.forEach(c=>{ const k=c.plan||'Gratis'; if(byPlan[k]!==undefined) byPlan[k]++; });
+    if(statsEl) statsEl.innerHTML=Object.entries(byPlan).map(([p,n])=>`
+      <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:12px;text-align:center">
+        <div style="font-size:22px;font-weight:800;color:#0f2a66">${n}</div>
+        <div style="font-size:11px;color:#64748b;margin-top:2px">${p}</div>
+      </div>`).join('')+`
+      <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:12px;text-align:center">
+        <div style="font-size:22px;font-weight:800;color:#0f2a66">${clients.length}</div>
+        <div style="font-size:11px;color:#64748b;margin-top:2px">Total</div>
+      </div>`;
+
+    if(!clients.length){
+      tbody.innerHTML='<tr><td colspan="6" style="text-align:center;padding:24px;color:#94a3b8">Sin clientes registrados aún</td></tr>';
+      return;
+    }
+
+    const planColors={Gratis:'background:#f0fdf4;color:#166534',Básico:'background:#eff6ff;color:#1e40af',Pro:'background:#f5f3ff;color:#6d28d9'};
+    tbody.innerHTML=clients.map(c=>{
+      const url=`https://airtech-assist.web.app/app?client=${c.clientId}`;
+      const fecha=c.createdAt?new Date(c.createdAt).toLocaleDateString('es-DO',{day:'2-digit',month:'short',year:'numeric'}):'—';
+      const planStyle=planColors[c.plan||'Gratis']||planColors.Gratis;
+      return `<tr style="border-bottom:1px solid #f1f5f9;transition:background .15s" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background=''">
+        <td style="padding:10px 12px">
+          <div style="font-weight:600;color:#1e293b">${esc(c.airlineName||'—')}</div>
+          <div style="font-size:10px;color:#94a3b8;font-family:monospace">${esc(c.clientId||'')}</div>
+        </td>
+        <td style="padding:10px 12px;color:#475569">${esc(c.adminEmail||'—')}</td>
+        <td style="padding:10px 12px">
+          <select onchange="updateClientPlan('${c.clientId}',this.value,this)"
+            style="padding:4px 8px;border-radius:6px;border:1px solid #e2e8f0;font-size:11px;font-weight:700;${planStyle};cursor:pointer">
+            ${['Gratis','Básico','Pro'].map(p=>`<option value="${p}"${(c.plan||'Gratis')===p?' selected':''}>${p}</option>`).join('')}
+          </select>
+        </td>
+        <td style="padding:10px 12px;color:#64748b;font-size:11px">${fecha}</td>
+        <td style="padding:10px 12px">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="checkbox" ${c.active!==false?'checked':''} onchange="toggleClientActive('${c.clientId}',this.checked)"
+              style="width:16px;height:16px;cursor:pointer">
+            <span style="font-size:11px;color:${c.active!==false?'#166534':'#dc2626'}">${c.active!==false?'Activo':'Inactivo'}</span>
+          </label>
+        </td>
+        <td style="padding:10px 12px">
+          <button onclick="navigator.clipboard.writeText('${url}');toast('✅ URL copiada')"
+            style="padding:5px 10px;background:#0f2a66;color:#fff;border:none;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer">
+            Copiar URL
+          </button>
+        </td>
+      </tr>`;
+    }).join('');
+  }catch(e){
+    tbody.innerHTML=`<tr><td colspan="6" style="text-align:center;padding:24px;color:#dc2626">Error: ${e.message}</td></tr>`;
+    console.error('[Platform]',e);
+  }
+}
+
+async function updateClientPlan(clientId, plan, selectEl){
+  if(!clientId||!plan) return;
+  try{
+    const batch=FB.db.batch();
+    batch.update(FB.db.collection('platform').doc('clients').collection('list').doc(clientId),{plan});
+    batch.update(FB.db.collection(clientId).doc('config'),{plan});
+    await batch.commit();
+    toast('✅ Plan actualizado a '+plan);
+    // Update select color
+    const planColors={Gratis:'background:#f0fdf4;color:#166534',Básico:'background:#eff6ff;color:#1e40af',Pro:'background:#f5f3ff;color:#6d28d9'};
+    if(selectEl) selectEl.style.cssText=selectEl.style.cssText.replace(/background:[^;]+;color:[^;]+/,planColors[plan]||'');
+  }catch(e){
+    toast('❌ Error: '+e.message, true);
+  }
+}
+
+async function toggleClientActive(clientId, active){
+  if(!clientId) return;
+  try{
+    await FB.db.collection('platform').doc('clients').collection('list').doc(clientId).update({active});
+    toast(active?'✅ Cliente activado':'⚠ Cliente desactivado');
+  }catch(e){
+    toast('❌ Error: '+e.message, true);
+  }
 }
 

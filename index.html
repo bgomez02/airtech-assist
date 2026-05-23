@@ -704,7 +704,18 @@ async function submitRegistration(e){
       clientId, createdAt: Date.now()
     }, { merge: true });
 
-    // 5. Notificar por email (sin bloquear)
+    // 5. Registrar en directorio central de la plataforma
+    await db.collection('platform').doc('clients').collection('list').doc(clientId).set({
+      clientId, airlineName, plan,
+      adminEmail: email, adminName: fullName.toUpperCase(),
+      adminUid: uid,
+      phone: document.getElementById('r-phone').value || '',
+      aircraft: document.getElementById('r-aircraft').value,
+      bases: document.getElementById('r-bases').value,
+      active: true, createdAt: Date.now()
+    });
+
+    // 6. Notificar por email (sin bloquear)
     const extraNotes = document.getElementById('r-notes').value || '';
     const params = {
       from_name: fullName, from_email: email, airline_name: airlineName,
