@@ -715,18 +715,52 @@ async function submitRegistration(e){
     };
     emailjs.send(EJS_SERVICE_ID, EJS_TEMPLATE_ID, params).catch(console.warn);
 
-    // 6. Mostrar éxito con código de empresa y enlace
+    // 6. Mostrar éxito con código de empresa
     const loginUrl = `https://airtech-assist.web.app/app?client=${clientId}`;
-    msg.className = 'ok';
+    document.getElementById('reg-form').style.display = 'none';
+    msg.className = '';
+    msg.style.cssText = 'display:block;margin-top:0';
     msg.innerHTML = `
-      <strong>¡Cuenta creada exitosamente!</strong><br>
-      Tu código de empresa es: <strong>${clientId}</strong><br>
-      <a href="${loginUrl}" style="color:#0f2a66;font-weight:700">Ir al panel →</a><br>
-      <small style="color:#64748b">Guarda este enlace y compártelo con tu equipo.</small>
+      <div style="background:#f0fdf4;border:2px solid #16a34a;border-radius:16px;padding:32px;text-align:center;max-width:520px;margin:0 auto">
+        <div style="font-size:40px;margin-bottom:12px">✅</div>
+        <h3 style="color:#166534;font-size:20px;margin-bottom:8px">¡Cuenta creada!</h3>
+        <p style="color:#166534;font-size:14px;margin-bottom:24px">Guarda tu código de empresa antes de continuar</p>
+
+        <div style="background:#fff;border:2px dashed #16a34a;border-radius:12px;padding:16px;margin-bottom:16px">
+          <div style="font-size:11px;color:#64748b;font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Tu código de empresa</div>
+          <div id="client-code-display" style="font-size:22px;font-weight:800;color:#0f2a66;letter-spacing:.05em;font-family:monospace">${clientId}</div>
+        </div>
+
+        <button onclick="
+          navigator.clipboard.writeText('${clientId}');
+          this.textContent='¡Copiado!';
+          setTimeout(()=>this.textContent='Copiar código',2000)
+        " style="width:100%;padding:12px;background:#0f2a66;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:12px">
+          Copiar código
+        </button>
+
+        <div style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:12px;margin-bottom:16px;text-align:left">
+          <div style="font-size:11px;color:#64748b;font-weight:600;margin-bottom:4px">ENLACE DE ACCESO PARA TU EQUIPO</div>
+          <div style="font-size:12px;color:#0f2a66;word-break:break-all">${loginUrl}</div>
+        </div>
+
+        <button onclick="
+          navigator.clipboard.writeText('${loginUrl}');
+          this.textContent='¡Enlace copiado!';
+          setTimeout(()=>this.textContent='Copiar enlace de acceso',2000)
+        " style="width:100%;padding:10px;background:#fff;color:#0f2a66;border:2px solid #0f2a66;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:20px">
+          Copiar enlace de acceso
+        </button>
+
+        <div style="background:#fefce8;border:1px solid #fbbf24;border-radius:10px;padding:12px;margin-bottom:20px;font-size:12px;color:#92400e">
+          ⚠️ <strong>Importante:</strong> Guarda el código y el enlace ahora. Lo necesitarás para iniciar sesión y para que tu equipo acceda al sistema.
+        </div>
+
+        <a href="${loginUrl}" style="display:block;padding:14px;background:linear-gradient(135deg,#0f2a66,#1d4ed8);color:#fff;border-radius:10px;font-size:15px;font-weight:700;text-decoration:none">
+          Ir a mi panel →
+        </a>
+      </div>
     `;
-    msg.style.display = 'block';
-    document.getElementById('reg-form').reset();
-    document.getElementById('opt-basic').checked = true;
 
   } catch(err) {
     let errText = 'Error al crear la cuenta.';
