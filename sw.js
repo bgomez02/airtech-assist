@@ -18,7 +18,7 @@ self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(CACHE_NAME).then(cache => {
       // Cache the app shell (same-origin)
-      const shellPromise = cache.addAll(['./','./index.html'])
+      const shellPromise = cache.addAll(['./','./index.html','./app.html'])
         .catch(e => console.warn('[SW] Shell cache parcial:', e));
       // Cache CDN scripts
       const cdnPromises = CDN_SCRIPTS.map(url =>

@@ -11,16 +11,19 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    // ¿El usuario tiene documento activo en users? (usuario real de airtechassist)
+    // ¿El usuario tiene documento activo en users identificado por su UID?
+    // (se registra el UID al primer login exitoso con PIN)
     function isAirtechassistUser() {
       return request.auth != null &&
         exists(/databases/$(database)/documents/airtechassist/config/users/$(request.auth.uid));
     }
 
-    // ¿Es superadmin?
+    // ¿Es superadmin? — UID leído del documento /airtechassist/config (no hardcodeado)
     function isSuperAdmin() {
       return request.auth != null &&
-        request.auth.uid == 'o3DDsHZDVXVGFVEJoACnezsj4wk1';
+        exists(/databases/$(database)/documents/airtechassist/config) &&
+        get(/databases/$(database)/documents/airtechassist/config).data.superadmin
+          == request.auth.uid;
     }
 
     // ¿Es admin o superior?
@@ -31,21 +34,47 @@ service cloud.firestore {
     }
 
     // ════════════════════════════════════════════════════════════
-    // USUARIOS — el anónimo solo puede LEER su propio documento
-    // (necesario para el flujo de login antes de autenticar)
+    // DOCUMENTO RAÍZ DE CONFIG — /airtechassist/config
+    // Contiene el campo superadminUid (y otros settings globales).
+    // Cualquier auth puede leerlo (las reglas lo necesitan).
+    // Escribir solo desde Firebase Console / Admin SDK.
+    // ════════════════════════════════════════════════════════════
+    match /airtechassist/config {
+      allow read:  if isAuth();
+      allow write: if false;
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // USUARIOS
+    // list: cualquier auth puede listar (necesario para login con PIN)
+    // get:  usuario registrado o el propio documento
+    // update: superadmin O el propio usuario actualizando solo su uid/lastLogin
     // ════════════════════════════════════════════════════════════
     match /airtechassist/config/users/{userId} {
-      // Lectura: usuario registrado de airtechassist O leyendo su propio doc
-      allow read:   if isAirtechassistUser() || (isAuth() && userId == request.auth.uid);
-      // Solo superadmin crea, actualiza y borra usuarios
+      allow list:   if isAuth();
+      allow get:    if isAirtechassistUser() || isSuperAdmin() ||
+                       (isAuth() && userId == request.auth.uid);
       allow create: if isSuperAdmin();
-      allow update: if isSuperAdmin();
+      allow update: if isSuperAdmin() ||
+                       (isAuth() && userId == request.auth.uid &&
+                        request.resource.data.diff(resource.data)
+                          .affectedKeys().hasOnly(['uid', 'lastLogin']));
       allow delete: if isSuperAdmin();
     }
 
     // ════════════════════════════════════════════════════════════
     // CONFIGURACIÓN — estaciones, catálogo, etc.
+    // stations y aircraft: lectura con auth (necesaria antes del login)
+    // appConfig ya tiene su propio match arriba
     // ════════════════════════════════════════════════════════════
+    match /airtechassist/config/stations/{id} {
+      allow read:  if isAuth();
+      allow write: if isSuperAdmin();
+    }
+    match /airtechassist/config/aircraft/{id} {
+      allow read:  if isAuth();
+      allow write: if isSuperAdmin();
+    }
     match /airtechassist/config/{collection}/{id} {
       allow read:  if isAirtechassistUser() || isSuperAdmin();
       allow write: if isSuperAdmin();
@@ -102,6 +131,24 @@ service cloud.firestore {
     // HORARIOS
     // ════════════════════════════════════════════════════════════
     match /airtechassist/{station}/schedules/{id} {
+      allow read:  if isAirtechassistUser() || isSuperAdmin();
+      allow write: if isSuperAdmin();
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // VUELOS
+    // ════════════════════════════════════════════════════════════
+    match /airtechassist/{station}/flights/{id} {
+      allow read:   if isAirtechassistUser() || isSuperAdmin();
+      allow create: if isAdmin() || isSuperAdmin();
+      allow update: if isAirtechassistUser() || isSuperAdmin();
+      allow delete: if isSuperAdmin();
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // CONFIG POR ESTACIÓN (notificaciones, etc.)
+    // ════════════════════════════════════════════════════════════
+    match /airtechassist/{station}/config/{id} {
       allow read:  if isAirtechassistUser() || isSuperAdmin();
       allow write: if isSuperAdmin();
     }

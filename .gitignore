@@ -2,3 +2,6 @@
 ~$*
 *.tmp
 Thumbs.db
+
+# Configuración local — NO subir al repo (contiene credenciales)
+config.js

@@ -3,17 +3,17 @@
 
 
 // ══ SUPABASE STORAGE — almacenamiento de archivos ══
-// ══ SUPABASE CREDENTIALS (preconfiguradas para AirTech Assist) ══
-const SB_DEFAULT_URL = 'https://zwzrebfvrexztjpmfign.supabase.co';
-const SB_DEFAULT_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp3enJlYmZ2cmV4enRqcG1maWduIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg2MTMyNzgsImV4cCI6MjA5NDE4OTI3OH0.lXU68WLstZbvdZ2BDi1D3aP9sKMM0rIXv3ZlW60sUTE';
+// Las credenciales se leen de config.js (no está en el repo)
+const _cfg = window.APP_CONFIG || {};
+const SB_DEFAULT_URL = _cfg.supabaseUrl  || '';
+const SB_DEFAULT_KEY = _cfg.supabaseKey  || '';
 
 let SUPABASE_URL = localStorage.getItem('airtechassist_sb_url') || SB_DEFAULT_URL;
 let SUPABASE_KEY = localStorage.getItem('airtechassist_sb_key') || SB_DEFAULT_KEY;
 // Auto-save defaults if not set
-if(!localStorage.getItem('airtechassist_sb_url')) localStorage.setItem('airtechassist_sb_url', SB_DEFAULT_URL);
-if(!localStorage.getItem('airtechassist_sb_key')) localStorage.setItem('airtechassist_sb_key', SB_DEFAULT_KEY);
-console.log('[Supabase] Ready — project: zwzrebfvrexztjpmfign');
-const SB_BUCKET  = 'airtechassist-files';
+if(SB_DEFAULT_URL && !localStorage.getItem('airtechassist_sb_url')) localStorage.setItem('airtechassist_sb_url', SB_DEFAULT_URL);
+if(SB_DEFAULT_KEY && !localStorage.getItem('airtechassist_sb_key')) localStorage.setItem('airtechassist_sb_key', SB_DEFAULT_KEY);
+const SB_BUCKET = _cfg.supabaseBucket || localStorage.getItem('airtechassist_sb_bucket') || 'files';
 
 function sbConfigured(){ return SUPABASE_URL && SUPABASE_KEY; }
 
@@ -111,9 +111,10 @@ async function uploadToSupabase(file, folder){
 }
 
 // ══ FASE 1 SEGURIDAD — Auth real + hashing + rate limiting + audit ══
-const SUPERADMIN_NAME  = 'BLADIMIR GOMEZ';
-const SUPERADMIN_EMAIL = 'bgmconsultor@gmail.com';  // login via Firebase Auth
-const SUPERADMIN_UID   = '4cVmrsgQyOeksGEAmbmcPDrQ1Qm2';   // UID en Firebase Auth
+// Valores leídos de config.js (no está en el repo — ver config.example.js)
+const SUPERADMIN_NAME  = (_cfg.superadminName  || '').toUpperCase();
+const SUPERADMIN_EMAIL = _cfg.superadminEmail  || '';
+const SUPERADMIN_UID   = _cfg.superadminUid    || '';
 const ADMIN_PASSWORDS  = [];  // ya no se usan contraseñas en texto plano
 
 // ── SHA-256 via Web Crypto API (sin librerías externas) ──
@@ -152,6 +153,7 @@ function clearRL(name){ sessionStorage.removeItem(rlKey(name)); }
 // ── Audit Log — registra cada login en Firestore ──
 async function auditLog(action,details){
   if(!window.FB) return;
+  if(!planCfg().auditLog) return; // no audit log en plan gratis/básico
   try{
     await FB.db.collection(AIRLINE_ID).doc('audit').collection('logs').add({
       action, ...details,
@@ -162,16 +164,85 @@ async function auditLog(action,details){
   }catch(e){console.warn('Audit log error:',e);}
 }
 
-// ══ AIRLINE & STATIONS ══
-const AIRLINE_ID = 'airtechassist'; // Cambiar por el código de cada aerolínea cliente
-window._station = 'PUJ';
-let loginStation = 'PUJ';
+// ══ PLAN DE SUSCRIPCIÓN ══════════════════════════════════════════
+const PLAN_CONFIG = {
+  free: {
+    name:'Gratis', emoji:'🆓',
+    maxBases:1, maxAircraft:5, maxUsers:3, historyDays:7,
+    auditLog:false, export:false,
+    tabs:['gantt'],
+  },
+  basic: {
+    name:'Básico', emoji:'⭐',
+    maxBases:2, maxAircraft:15, maxUsers:10, historyDays:30,
+    auditLog:false, export:true,
+    tabs:['gantt','demand','staff','users','plan','schedule','flights','catalog','dashboard'],
+  },
+  pro: {
+    name:'Pro', emoji:'🚀',
+    maxBases:Infinity, maxAircraft:Infinity, maxUsers:Infinity, historyDays:Infinity,
+    auditLog:true, export:true,
+    tabs:['gantt','demand','staff','users','plan','schedule','flights','catalog','dashboard','mcc'],
+  },
+};
 
-// Stations — se cargan desde Firestore; defaults si no hay configuración
-let stations = [
-  {code:'PUJ', name:'Punta Cana',    flag:'🏖️'},
-  {code:'SDQ', name:'Sto. Domingo',  flag:'🏙️'}
-];
+function currentPlan(){ return (window.APP_CONFIG?.plan||'pro'); }
+function planCfg(){ return PLAN_CONFIG[currentPlan()]||PLAN_CONFIG.pro; }
+function planAllowsTab(tab){ return planCfg().tabs.includes(tab); }
+
+const PLAN_FEATURE_NAMES = {
+  demand:'Análisis de Demanda', staff:'Gestión de Roster', users:'Control de Usuarios',
+  plan:'Planificación', schedule:'Horarios', flights:'Módulo de Vuelos',
+  catalog:'Catálogo de Tareas', dashboard:'Dashboard Analítico', mcc:'Control MCC Multi-Base',
+  export:'Exportación PDF / Excel', bases:'múltiples bases', aircraft:'más aeronaves', maxUsers:'más usuarios',
+};
+
+function showUpgradeModal(feature){
+  const cfg=planCfg();
+  const featName=PLAN_FEATURE_NAMES[feature]||feature;
+  const required=currentPlan()==='free'?'basic':'pro';
+  const reqCfg=PLAN_CONFIG[required];
+  document.getElementById('upgrade-feature-name').textContent=featName;
+  document.getElementById('upgrade-current-plan').textContent=cfg.emoji+' '+cfg.name;
+  document.getElementById('upgrade-required-plan').textContent=reqCfg.emoji+' '+reqCfg.name;
+  document.getElementById('modal-upgrade').style.display='flex';
+}
+function closeUpgradeModal(){
+  document.getElementById('modal-upgrade').style.display='none';
+}
+
+function applyPlanGates(){
+  const cfg=planCfg();
+  // Gate tabs not included in this plan
+  ['demand','staff','users','plan','schedule','flights','catalog','dashboard','mcc'].forEach(t=>{
+    const el=document.getElementById('TAB-'+t);
+    if(el && !cfg.tabs.includes(t)) el.style.display='none';
+  });
+  // Gate export buttons
+  if(!cfg.export){
+    ['btn-pdf','btn-excel','gantt-pdf-row'].forEach(id=>{
+      const el=document.getElementById(id); if(el) el.style.display='none';
+    });
+  }
+  // Show plan badge in header
+  const badge=document.getElementById('plan-badge');
+  if(badge){
+    const colors={free:'background:#f0fdf4;color:#166534;border:1px solid #86efac',basic:'background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe',pro:'background:#f5f3ff;color:#6d28d9;border:1px solid #c4b5fd'};
+    badge.style.cssText=`font-size:10px;font-weight:700;padding:3px 9px;border-radius:20px;${colors[currentPlan()]||colors.pro}`;
+    badge.textContent=cfg.emoji+' '+cfg.name;
+  }
+}
+
+// ══ AIRLINE & STATIONS ══════════════════════════════════════════
+const AIRLINE_ID = _cfg.airlineId || 'airtechassist';
+window._station = '';
+let loginStation = '';
+
+// Stations — se cargan desde Firestore; sin defaults hardcodeados
+let stations = [];
+// Returns the active station code; falls back to first configured station.
+// Never returns '' — callers should guard on the result being truthy for writes.
+function activeStation(){ return window._station || stations[0]?.code || ''; }
 
 function renderStationTabs(containerId){
   const c=document.getElementById(containerId);
@@ -236,6 +307,11 @@ function populateAircraftSelects(){
 async function saveAircraft(reg, model, active=true, msn=''){
   if(!reg) return;
   reg = reg.trim().toUpperCase();
+  const isNew = !aircraft.find(a=>a.reg===reg);
+  if(isNew && aircraft.length >= planCfg().maxAircraft){
+    showUpgradeModal('aircraft');
+    return;
+  }
   const data = {reg, model:model||'', active, updatedAt:Date.now()};
   if(msn && msn.trim()) data.msn = msn.trim();
   await FB.db.collection(AIRLINE_ID).doc('config').collection('aircraft')
@@ -289,11 +365,41 @@ async function loadStations(){
   renderStationTabs('station-selector');
   renderStationTabs('rep-station-selector');
   buildRepStationSelector();
+  populateStationDropdowns();
   loadAircraft(); // reload aircraft when stations change
 }
 
 function buildRepStationSelector(){
   // already handled by renderStationTabs for rep-station-selector
+}
+
+function populateStationDropdowns(){
+  // Populate #schedule-station (full list)
+  const schedSel = document.getElementById('schedule-station');
+  if(schedSel){
+    const prev = schedSel.value;
+    schedSel.innerHTML = '';
+    stations.forEach(s=>{
+      const o = document.createElement('option');
+      o.value = s.code;
+      o.textContent = s.code + (s.name ? ' — ' + s.name : '');
+      schedSel.appendChild(o);
+    });
+    if([...schedSel.options].some(o=>o.value===prev)) schedSel.value=prev;
+  }
+  // Populate #um-station (user modal): keep "Todas las bases" first, then stations
+  const umSel = document.getElementById('um-station');
+  if(umSel){
+    const prevUm = umSel.value;
+    umSel.innerHTML = '<option value="AMBAS">🌐 Todas las bases</option>';
+    stations.forEach(s=>{
+      const o = document.createElement('option');
+      o.value = s.code;
+      o.textContent = s.code + (s.name ? ' — ' + s.name : '');
+      umSel.appendChild(o);
+    });
+    if([...umSel.options].some(o=>o.value===prevUm)) umSel.value=prevUm;
+  }
 }
 
 function setStation(s){
@@ -309,10 +415,16 @@ function switchStation(s){
   window._station = s;
   sessionStorage.setItem('airtechassist_station', s);
   document.getElementById('station-badge').textContent = s;
-  document.getElementById('station-switcher-btn').textContent = s==='PUJ'?'🏖️ PUJ':'🏙️ SDQ';
+  const st = stations.find(x=>x.code===s);
+  const swBtn = document.getElementById('station-switcher-btn');
+  if(swBtn) swBtn.textContent = (st?.flag||'🛫')+' '+s;
+  // Update API sync station label if visible
+  const stLbl = document.getElementById('api-sync-station-lbl');
+  if(stLbl) stLbl.textContent = s;
   // Clear local state before resubscribing
   techs=[]; tasks=[]; history=[]; documents=[];
-  subscribeAll();   // subscribeAll captures 'st' at call time
+  subscribeAll();
+  loadFlights(s);   // reload flights for new station → updates Gantt
   toast('📍 Cambiado a base ' + s);
 }
 
@@ -425,10 +537,11 @@ function _loginSuccess(name,role){
   const sb=document.getElementById('station-badge');
   const sw=document.getElementById('station-switcher-btn');
   if(sb) sb.textContent=loginStation;
-  if(sw) sw.textContent=loginStation==='PUJ'?'🏖️ PUJ':'🏙️ SDQ';
-  applyRole(); initSupabaseUI(); initPlanTab(); subscribeAll(); subscribeUsers(); renderGantt(); loadTaskCatalog(); loadAircraft(); loadFlights(window._station||'PUJ');
+  const _st=stations.find(s=>s.code===loginStation);
+  if(sw) sw.textContent=(_st?.flag||'🛫')+' '+loginStation;
+  applyRole(); initSupabaseUI(); initPlanTab(); subscribeAll(); subscribeUsers(); renderGantt(); loadTaskCatalog(); loadAircraft(); loadFlights(window._station); loadTailAssignments(); loadShiftDefs();
   // Pre-load current month schedule for auto-assign
-  const _now=new Date(); const _mkey=_now.getFullYear()+'-'+String(_now.getMonth()+1).padStart(2,'0'); loadSchedule(_mkey, window._station||'PUJ');
+  const _now=new Date(); const _mkey=_now.getFullYear()+'-'+String(_now.getMonth()+1).padStart(2,'0'); loadSchedule(_mkey, activeStation());
   const btn=document.getElementById('login-btn-main');
   if(btn){ btn.textContent='Ingresar'; btn.disabled=false; }
 }
@@ -559,6 +672,7 @@ function applyRole(){
   };
   document.getElementById('role-indicator').innerHTML = badges[currentRole]||badges.tech;
   initPlanTab();
+  applyPlanGates();
 }
 
 // ══ SONIDOS — 4 tonos distintos estilo Boeing ══
@@ -679,84 +793,99 @@ function showAlertBanner(type,ac,msg){
 
 // ══ STATE ══
 let tasks=[], techs=[], history=[], documents=[];
+let ganttPlanes = {}; // { taskId: { plane, eta, etd, ABOVE, RISE } } — animated aircraft per row
 let formTechs=[], drag=null, TW=600, FB=null, currentUser=null;
 let selectedDate=localDateStr();  // local date — avoids UTC shift
 let editingTaskId=null, pendingFile=null;
 
+// ══ TURNOS CONFIGURABLES ══
+const SHIFT_COLORS = ['#3b82f6','#f59e0b','#8b5cf6','#22c55e','#ef4444','#ec4899','#14b8a6'];
+const SHIFT_EMOJIS = ['🌅','🌇','🌙','☀️','🌆','🌃','🌄'];
+let shiftDefs = [
+  {id:'A', name:'Turno A', start:'05:00', end:'14:00', color:'#3b82f6', emoji:'🌅'},
+  {id:'B', name:'Turno B', start:'13:00', end:'22:00', color:'#f59e0b', emoji:'🌇'},
+  {id:'C', name:'Turno C', start:'21:00', end:'05:00', color:'#8b5cf6', emoji:'🌙'},
+];
+
+async function loadShiftDefs(){
+  if(!window.FB) return;
+  try{
+    const snap=await FB.db.collection(AIRLINE_ID).doc('config').get();
+    const d=snap.data();
+    if(d?.shifts && Array.isArray(d.shifts) && d.shifts.length>0){
+      shiftDefs=d.shifts;
+    }
+  }catch(e){ console.warn('loadShiftDefs:',e); }
+  buildShiftBands();
+  renderShiftEditor();
+}
+
+async function saveShiftDefs(){
+  if(!window.FB) return;
+  // Collect from form
+  const rows=document.querySelectorAll('#shift-defs-list .shift-def-row');
+  const updated=[];
+  rows.forEach(row=>{
+    const id   =row.dataset.id;
+    const name =(row.querySelector('.sd-name')?.value||'').trim().toUpperCase()||id;
+    const start=(row.querySelector('.sd-start')?.value||'').trim();
+    const end  =(row.querySelector('.sd-end')?.value||'').trim();
+    const color=(row.querySelector('.sd-color')?.value||'#3b82f6');
+    const emoji=(row.querySelector('.sd-emoji')?.value||'⏰').trim()||'⏰';
+    if(id&&start&&end) updated.push({id,name,start,end,color,emoji});
+  });
+  if(!updated.length){ toast('Agrega al menos un turno',true); return; }
+  try{
+    await FB.db.collection(AIRLINE_ID).doc('config').set({shifts:updated},{merge:true});
+    shiftDefs=updated;
+    buildShiftBands();
+    renderStaff();
+    toast('✅ Turnos guardados');
+  }catch(e){ toast('Error: '+e.message,true); }
+}
+
+function addShiftDef(){
+  const idx=shiftDefs.length;
+  const color=SHIFT_COLORS[idx%SHIFT_COLORS.length];
+  const emoji=SHIFT_EMOJIS[idx%SHIFT_EMOJIS.length];
+  const id=String.fromCharCode(65+idx); // A, B, C, D…
+  shiftDefs.push({id,name:'Turno '+id,start:'06:00',end:'14:00',color,emoji});
+  renderShiftEditor();
+}
+
+function removeShiftDef(id){
+  if(shiftDefs.length<=1){ toast('Debe haber al menos un turno',true); return; }
+  shiftDefs=shiftDefs.filter(s=>s.id!==id);
+  renderShiftEditor();
+}
+
+function renderShiftEditor(){
+  const list=document.getElementById('shift-defs-list');
+  if(!list) return;
+  list.innerHTML='';
+  shiftDefs.forEach(sh=>{
+    const row=document.createElement('div');
+    row.className='shift-def-row';
+    row.dataset.id=sh.id;
+    row.style.cssText='display:flex;gap:6px;align-items:center;background:#fff;border:1px solid #bae6fd;border-radius:8px;padding:8px 10px;flex-wrap:wrap';
+    row.innerHTML=`
+      <span style="font-size:11px;font-weight:700;color:#0369a1;min-width:20px">${sh.id}</span>
+      <input class="fi sd-name" value="${esc(sh.name)}" placeholder="Nombre" style="width:110px;padding:4px 8px;font-size:11px" title="Nombre del turno">
+      <input class="fi sd-emoji" value="${sh.emoji||'⏰'}" placeholder="🌅" style="width:42px;padding:4px 6px;font-size:16px;text-align:center" maxlength="2" title="Emoji">
+      <span style="font-size:10px;color:#64748b">Inicio</span>
+      <input type="time" class="fi sd-start" value="${sh.start}" style="width:90px;padding:4px 6px;font-size:12px" title="Hora de inicio">
+      <span style="font-size:10px;color:#64748b">Fin</span>
+      <input type="time" class="fi sd-end" value="${sh.end}" style="width:90px;padding:4px 6px;font-size:12px" title="Hora de fin">
+      <input type="color" class="sd-color" value="${sh.color}" style="width:32px;height:32px;border:none;border-radius:6px;cursor:pointer;padding:2px" title="Color en el Gantt">
+      <button onclick="removeShiftDef('${sh.id}')" style="background:#fee2e2;border:none;color:#dc2626;border-radius:6px;padding:4px 8px;cursor:pointer;font-size:12px" title="Eliminar turno">✕</button>
+    `;
+    list.appendChild(row);
+  });
+}
+
 // ══ TÉCNICOS POR BASE ══
-const DEFAULT_TECHS_PUJ = [
-  {name:'MAXIMILIANO CESAR CACERES',          role:'FIRMA',    hours:6, shift:'05:00–14:00'},
-  {name:'JORGE CABALLERO',                    role:'FIRMA',    hours:6, shift:'05:00–14:00'},
-  {name:'ANGIE HASBLEIDY OROZCO TOVAR',       role:'FIRMA',    hours:6, shift:'05:00–14:00'},
-  {name:'PEDRO LUIS SUAREZ AGUILAR',          role:'FIRMA',    hours:6, shift:'05:00–14:00'},
-  {name:'AROA ROMERO AMADOR',                 role:'FIRMA',    hours:6, shift:'13:00–22:00'},
-  {name:'MIGUEL DE LA NIEVE',                 role:'FIRMA',    hours:6, shift:'13:00–22:00'},
-  {name:'ALVARO SMIK SANTANA',                role:'FIRMA',    hours:6, shift:'05:00–14:00'},
-  {name:'LIZ NEILYN UYOÑA CASTILLO',          role:'FIRMA',    hours:6, shift:'13:00–22:00'},
-  {name:'CARLOS ORTEGA',                      role:'FIRMA',    hours:6, shift:'05:00–14:00'},
-  {name:'ELISEO FULGENCIO LOPEZ',             role:'FIRMA',    hours:6, shift:'21:00–05:00'},
-  {name:'LUIS JOSE SANCHEZ ORTEGA',           role:'FIRMA',    hours:6, shift:'05:00–14:00'},
-  {name:'LENIN ISMAEL MARTINEZ MENDOZA',      role:'FIRMA',    hours:6, shift:'13:00–22:00'},
-  {name:'WADY JOSE MERCADO GAUTREAUX',        role:'FIRMA',    hours:6, shift:'05:00–14:00'},
-  {name:'GRINYS BISMARK DANIEL REYES',        role:'FIRMA',    hours:6, shift:'21:00–05:00'},
-  {name:'JONATHAN DE LA CRUZ',               role:'FIRMA',    hours:6, shift:'05:00–14:00'},
-  {name:'JOSE AUGUSTO DE JESUS GUZMAN',      role:'FIRMA',    hours:6, shift:'13:00–22:00'},
-  {name:'RAYMUNDO MIRANDA',                   role:'FIRMA',    hours:6, shift:'05:00–14:00'},
-  {name:'PEDRO SANCHEZ',                      role:'FIRMA',    hours:6, shift:'05:00–14:00'},
-  {name:'IAN AXEL SALDAÑA CARRERA',           role:'FIRMA',    hours:6, shift:'21:00–05:00'},
-  {name:'FRANCINA YVELISSE RODRIGUEZ FRIAS',  role:'FIRMA',    hours:6, shift:'05:00–14:00'},
-  {name:'LEIDY JENINIFER SANCHEZ RONDON',     role:'FIRMA',    hours:6, shift:'13:00–22:00'},
-  {name:'NEHEMÍA AMADOR GARCIA LÓPEZ',        role:'FIRMA',    hours:6, shift:'05:00–14:00'},
-  {name:'SAEL CARRION',                       role:'FIRMA',    hours:6, shift:'05:00–14:00'},
-  {name:'CARLOS MAURICIO CHAVEZ MEDINA',      role:'FIRMA',    hours:6, shift:'13:00–22:00'},
-  {name:'MARCELO DAMIAN RIERA',               role:'FIRMA',    hours:6, shift:'05:00–14:00'},
-  {name:'JENSY JAVIER SANCHEZ SUAREZ',        role:'FIRMA',    hours:6, shift:'21:00–05:00'},
-  {name:'JULIO CESAR GUZMAN ROSADO',          role:'FIRMA',    hours:6, shift:'05:00–14:00'},
-  {name:'ALVIN MCL',                          role:'NO-FIRMA', hours:3, shift:'05:00–14:00'},
-  {name:'WINSTON MCL',                        role:'NO-FIRMA', hours:3, shift:'13:00–22:00'},
-  {name:'FRANCIS MCL',                        role:'NO-FIRMA', hours:3, shift:'21:00–05:00'},
-  {name:'CARMEN MCL',                         role:'NO-FIRMA', hours:3, shift:'05:00–14:00'},
-  {name:'JOSE MCL',                           role:'NO-FIRMA', hours:3, shift:'13:00–22:00'},
-  {name:'FERNANDO MCL',                       role:'NO-FIRMA', hours:3, shift:'05:00–14:00'},
-  {name:'DAVID MCL',                          role:'NO-FIRMA', hours:3, shift:'21:00–05:00'},
-  {name:'RESPONSABLE GASEO PUJ',              role:'GASEO',    hours:9, shift:'05:00–14:00'},
-  {name:'RESPONSABLE DESPACHO PUJ',           role:'DESPACHO', hours:9, shift:'05:00–14:00'},
-];
-
-const DEFAULT_TECHS_SDQ = [
-  {name:'MELVIN ALEXIS PEREZ MANZANARES',     role:'FIRMA',    hours:6, shift:'05:00–14:00'},
-  {name:'ANEUDY MARTINEZ JAVIER',             role:'FIRMA',    hours:6, shift:'05:00–14:00'},
-  {name:'JOSE ALBERTO GONZALEZ ALVARADO',     role:'FIRMA',    hours:6, shift:'05:00–14:00'},
-  {name:'CARLOS ANTONIO MENDOZA',             role:'FIRMA',    hours:6, shift:'13:00–22:00'},
-  {name:'CARLOS ANGEL ADAMES REYES',          role:'FIRMA',    hours:6, shift:'13:00–22:00'},
-  {name:'ORLANDYS MARIEL ESPINAL VENTURA',    role:'FIRMA',    hours:6, shift:'05:00–14:00'},
-  {name:'PEDRO LUIS BATISTA RIVAS',           role:'FIRMA',    hours:6, shift:'05:00–14:00'},
-  {name:'LEUDY MALQUIER GARCIA OVIEDO',       role:'FIRMA',    hours:6, shift:'21:00–05:00'},
-  {name:'LEONALDO BRIOSO VARELA',             role:'FIRMA',    hours:6, shift:'13:00–22:00'},
-  {name:'RIQUELMI CISNERO',                   role:'FIRMA',    hours:6, shift:'05:00–14:00'},
-  {name:'MIGUEL ANGEL ALCANTARA MILLORD',     role:'FIRMA',    hours:6, shift:'21:00–05:00'},
-  {name:'OMAR ALVAREZ MERCHAN',               role:'FIRMA',    hours:6, shift:'05:00–14:00'},
-  {name:'EUCLIDES SALGADO CRUZ',              role:'FIRMA',    hours:6, shift:'13:00–22:00'},
-  {name:'VICENTE DE JESUS ABREU SANTOS',      role:'FIRMA',    hours:6, shift:'05:00–14:00'},
-  {name:'DEWIN SANTANA',                      role:'FIRMA',    hours:6, shift:'21:00–05:00'},
-  {name:'GREGORIO ALCANTARA MANZUETA',        role:'FIRMA',    hours:6, shift:'05:00–14:00'},
-  {name:'JONATHAN ROSARIO ROSARIO',           role:'FIRMA',    hours:6, shift:'13:00–22:00'},
-  {name:'DARIO ERNESTO CEDEÑO',               role:'FIRMA',    hours:6, shift:'05:00–14:00'},
-  {name:'FABIO MAURICIO DOS SANTOS',          role:'FIRMA',    hours:6, shift:'21:00–05:00'},
-  {name:'FREDDY LORENZO CUETARA',             role:'FIRMA',    hours:6, shift:'05:00–14:00'},
-  {name:'JOSÉ DANIEL CANDIDO DA SILVA',       role:'FIRMA',    hours:6, shift:'13:00–22:00'},
-  {name:'JUAN CARLOS ORTIZ GONZALEZ',         role:'FIRMA',    hours:6, shift:'05:00–14:00'},
-  {name:'FRANQUIMAR PESSOA',                  role:'FIRMA',    hours:6, shift:'05:00–14:00'},
-  {name:'EVER ARMANDO MONTOYA',               role:'FIRMA',    hours:6, shift:'21:00–05:00'},
-  {name:'JOSUE RAMIREZ FUENTES',              role:'FIRMA',    hours:6, shift:'13:00–22:00'},
-  {name:'YAISETH YASSIEL TUÑÓN RODRÍGUEZ',    role:'FIRMA',    hours:6, shift:'05:00–14:00'},
-  {name:'RESPONSABLE GASEO SDQ',              role:'GASEO',    hours:9, shift:'05:00–14:00'},
-  {name:'RESPONSABLE DESPACHO SDQ',           role:'DESPACHO', hours:9, shift:'05:00–14:00'},
-];
-
-// Helper: pick defaults for current station
-function getDefaultTechs(){ return window._station==='SDQ' ? DEFAULT_TECHS_SDQ : DEFAULT_TECHS_PUJ; }
-// DEFAULT_TECHS_PUJ and DEFAULT_TECHS_SDQ are used directly
+// No default techs — each installation adds its own staff via Roster
+function getDefaultTechs(){ return []; }
 
 // ══ UTILS ══
 const uid   =()=>Math.random().toString(36).slice(2,9);
@@ -801,6 +930,7 @@ function updateTimeLine(){
   const hh=String(now.getHours()).padStart(2,'0'),mm=String(now.getMinutes()).padStart(2,'0');
   tl.style.left=pct(mins);
   if(lbl)lbl.textContent=`${hh}:${mm}`;
+  updateAllPlanes(); // reposition all animated aircraft
 }
 setInterval(()=>{
   updateClock();
@@ -904,19 +1034,14 @@ function dayTasks(){
 let _unsubs = []; // Firestore unsubscribe handles
 
 function subscribeAll(){
-  const st = window._station || 'PUJ';
+  const st = window._station;
+  if(!st){ console.warn('subscribeAll: no station set'); return; }
   _unsubs.forEach(u=>{try{u();}catch(_){}});
   _unsubs=[];
   techs=[]; tasks=[]; history=[]; documents=[]; activeReports=[];
 
   _unsubs.push(FB.onSnapshot(FB.TECHS(st),snap=>{
     techs=snap.docs.map(d=>({id:d.id,...d.data()}));
-    if(!techs.length){
-      // Seed default techs for THIS station
-      const defaults = st==='SDQ' ? DEFAULT_TECHS_SDQ : DEFAULT_TECHS_PUJ;
-      defaults.forEach(t=>FB.addDoc(FB.TECHS(st),t));
-      return;
-    }
     techs.sort((a,b)=>a.name.localeCompare(b.name));
     if(document.getElementById('VIEW-staff').classList.contains('on'))renderStaff();
     kpis();
@@ -992,23 +1117,27 @@ const fbTimeout=setTimeout(()=>{
 },20000);
 
 function initFB(){
-  FB.signInAnonymously().catch(e=>{
-    clearTimeout(fbTimeout);
-    setStatus(false,'Error auth');
-    const errEl=document.getElementById('loader-err');
-    const errMsg=document.getElementById('loader-err-msg');
-    const spin=document.getElementById('loader-spin');
-    // Specific message for anonymous auth disabled
-    if(e.code==='auth/admin-restricted-operation' || e.code==='auth/operation-not-allowed'){
+  function _tryAnonSignIn(){
+    FB.signInAnonymously().catch(e=>{
+      clearTimeout(fbTimeout);
+      setStatus(false,'Error auth');
+      const errEl=document.getElementById('loader-err');
+      const errMsg=document.getElementById('loader-err-msg');
+      const spin=document.getElementById('loader-spin');
+      // Specific message for anonymous auth disabled
+      if(e.code==='auth/admin-restricted-operation' || e.code==='auth/operation-not-allowed'){
+        if(errEl){ errEl.style.display='block'; spin.style.display='none';
+          errMsg.textContent='⚠ Activa Autenticación Anónima en Firebase Console → Authentication → Sign-in method → Anonymous'; }
+        return;
+      }
       if(errEl){ errEl.style.display='block'; spin.style.display='none';
-        errMsg.textContent='⚠ Activa Autenticación Anónima en Firebase Console → Authentication → Sign-in method → Anonymous'; }
-      return;
-    }
-    if(errEl){ errEl.style.display='block'; spin.style.display='none';
-      errMsg.textContent='signInAnonymously falló: '+e.code+' — '+e.message; }
-  });
+        errMsg.textContent='signInAnonymously falló: '+e.code+' — '+e.message; }
+    });
+  }
   FB.onAuthStateChanged(null,user=>{
-    if(!user)return;
+    // No user at all — sign in anonymously (first load or signed out)
+    if(!user){ _tryAnonSignIn(); return; }
+
     clearTimeout(fbTimeout); // Firebase conectó OK
     currentUser=user;
     document.getElementById('uid-label').textContent='ID: '+user.uid.slice(0,8)+'…';
@@ -1018,10 +1147,26 @@ function initFB(){
     // Check session
     const savedRole=sessionStorage.getItem('airtechassist_role');
     const savedName=sessionStorage.getItem('airtechassist_name');
-    const savedStation=sessionStorage.getItem('airtechassist_station')||'PUJ';
+    const rawStation=sessionStorage.getItem('airtechassist_station');
+    // Validate saved station still exists — fall back to first available
+    const validStation = (rawStation && stations.find(s=>s.code===rawStation))
+      ? rawStation
+      : (stations[0]?.code || '');
+    if(rawStation && rawStation!==validStation){
+      // Saved station no longer exists — clear it
+      sessionStorage.removeItem('airtechassist_station');
+    }
+    const savedStation = validStation;
     if(savedRole&&savedName){
-      loginStation=savedStation;
-      _loginSuccess(savedName, savedRole);
+      // Superadmin requires email auth. If still anonymous, clear cache → force re-login.
+      if(savedRole==='superadmin' && user.isAnonymous){
+        sessionStorage.removeItem('airtechassist_role');
+        sessionStorage.removeItem('airtechassist_name');
+        document.getElementById('login-screen').style.display='flex';
+      } else {
+        loginStation=savedStation;
+        _loginSuccess(savedName, savedRole);
+      }
     } else {
       document.getElementById('login-screen').style.display='flex';
     }
@@ -1029,13 +1174,13 @@ function initFB(){
     document.getElementById('date-filter').value=selectedDate;
     buildAxis(); buildShiftBands(); updateClock();
     loadStations(); // dynamic stations from Firestore
-
-    subscribeAll();
+    // subscribeAll() is called by _loginSuccess once the user has a valid role
   });
 }
 
 // ══ TABS ══
 function switchTab(n){
+  if(!planAllowsTab(n)){ showUpgradeModal(n); return; }
   ['gantt','demand','staff','users','plan','mcc','catalog','dashboard','schedule','flights'].forEach(v=>{
     const view=document.getElementById('VIEW-'+v);
     const tab=document.getElementById('TAB-'+v);
@@ -1079,6 +1224,17 @@ function switchTab(n){
           const card = document.querySelector('#VIEW-flights .card > div:first-child');
           if(card) card.appendChild(btn);
         }
+        // Show API sync bar for superadmin
+        const syncBar = document.getElementById('flight-sync-bar');
+        if(syncBar) syncBar.style.display='block';
+        // Set date default and station label
+        const apiDate = document.getElementById('api-sync-date');
+        if(apiDate && !apiDate.value) apiDate.value = selectedDate;
+        const stLbl = document.getElementById('api-sync-station-lbl');
+        if(stLbl) stLbl.textContent = window._station || '—';
+      } else {
+        const syncBar = document.getElementById('flight-sync-bar');
+        if(syncBar) syncBar.style.display='none';
       }
       renderFlightsView();
     },100);
@@ -1094,7 +1250,7 @@ function kpis(){
   const todayDate = selectedDate || localDateStr();
   const [_y,_m,_d] = todayDate.split('-').map(Number);
   const _monthKey = _y+'-'+String(_m).padStart(2,'0');
-  const _station = window._station||'PUJ';
+  const _station = activeStation();
   const _schedKey = _monthKey+'-'+_station;
   const _schedData = scheduleData[_schedKey];
 
@@ -1203,7 +1359,7 @@ function demandHrs(){const h=Array(24).fill(0);dayTasks().forEach(t=>{for(let i=
 async function saveSnap(){
   if(!FB)return;
   try{
-    const h=demandHrs(),d=selectedDate||localDateStr(),st=window._station||'PUJ';
+    const h=demandHrs(),d=selectedDate||localDateStr(),st=activeStation();
     const data={date:d,hrs:[...h],tasks:dayTasks().map(t=>({ac:t.ac,wo:t.wo,start:hhmm(t.start),end:hhmm(t.start+t.dur),staff:t.staff.length})),updatedAt:Date.now()};
     await FB.db.collection(AIRLINE_ID).doc(st).collection('history').doc(d).set(data,{merge:true});
   }catch(e){console.warn('saveSnap:',e);}
@@ -1211,12 +1367,205 @@ async function saveSnap(){
 
 // ══ AXIS ══
 function buildAxis(){const el=document.getElementById('gaxis');el.innerHTML='';for(let i=0;i<=24;i++){const s=document.createElement('span');s.style.left=pct(i*60);s.textContent=(i<10?'0':'')+i;el.appendChild(s);}}
-function buildShiftBands(){const el=document.getElementById('shift-bands');el.innerHTML='';[{s:5*60,e:14*60,c:'rgba(59,130,246,.3)'},{s:13*60,e:22*60,c:'rgba(245,158,11,.3)'},{s:21*60,e:24*60,c:'rgba(139,92,246,.3)'},{s:0,e:5*60,c:'rgba(139,92,246,.3)'}].forEach(b=>{const d=document.createElement('div');d.style.cssText=`position:absolute;top:0;bottom:0;left:${pct(b.s)};width:${pct(b.e-b.s)};background:${b.c}`;el.appendChild(d);});}
+function buildShiftBands(){
+  const el=document.getElementById('shift-bands');
+  if(!el) return;
+  el.innerHTML='';
+  function hexToRgba(hex,a){
+    const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);
+    return `rgba(${r},${g},${b},${a})`;
+  }
+  shiftDefs.forEach(sh=>{
+    const s=timeStrToMin(sh.start), e=timeStrToMin(sh.end);
+    const c=hexToRgba(sh.color||'#3b82f6',.25);
+    if(e>s){
+      // Same day
+      const d=document.createElement('div');
+      d.style.cssText=`position:absolute;top:0;bottom:0;left:${pct(s)};width:${pct(e-s)};background:${c}`;
+      el.appendChild(d);
+    } else {
+      // Overnight: two segments
+      const d1=document.createElement('div');
+      d1.style.cssText=`position:absolute;top:0;bottom:0;left:${pct(s)};width:${pct(1440-s)};background:${c}`;
+      el.appendChild(d1);
+      const d2=document.createElement('div');
+      d2.style.cssText=`position:absolute;top:0;bottom:0;left:0;width:${pct(e)};background:${c}`;
+      el.appendChild(d2);
+    }
+  });
+}
+function timeStrToMin(t){ if(!t) return 0; const [h,m]=(t||'00:00').split(':').map(Number); return h*60+(m||0); }
 function mTW(){const ax=document.getElementById('gaxis');if(ax)TW=ax.offsetWidth||620;}
+
+// ══ AIRCRAFT TRAJECTORY ANIMATION ══════════════════════════════════════════
+// Adds an approach / on-ground / departure plane icon to each Gantt row.
+// The plane rises 30 px above the track, touches the amber gslot at ETA
+// and climbs back to sky level 45 min after ETD.
+const TRAJ_ABOVE = 32;  // px the plane flies above the gslot centre
+const TRAJ_YGND  = 27;  // gslot centre from trackWrap top = 8px padding-top + 38/2 track height
+const TRAJ_RISE  = 45;  // minutes of approach / departure trajectory
+const TRAJ_YSKY  = TRAJ_YGND - TRAJ_ABOVE; // = -5 (above trackWrap top)
+
+function addFlightPlane(task, trackWrap){
+  const eta = task.gs;
+  const etd = task.ge;
+  if(!eta || !etd || etd <= eta) return;
+
+  const ns = 'http://www.w3.org/2000/svg';
+
+  // ── Container (sibling of .track, covers full trackWrap) ──
+  const wrap = document.createElement('div');
+  wrap.id = 'PLTRAJ_' + task.id;
+  wrap.style.cssText = 'position:absolute;top:0;left:0;right:0;bottom:0;pointer-events:none;overflow:visible;z-index:8';
+
+  // ── SVG trajectory lines ──
+  // SVG is positioned so y=0 is at TRAJ_YSKY (sky) and y=TRAJ_ABOVE is gslot level
+  const svgH = TRAJ_ABOVE + 28;
+  const svg  = document.createElementNS(ns,'svg');
+  svg.style.cssText = `position:absolute;top:${TRAJ_YSKY}px;left:0;width:100%;height:${svgH}px;overflow:visible;pointer-events:none`;
+
+  const xA1 = ((eta - TRAJ_RISE) / 1440 * 100).toFixed(3) + '%';
+  const xA2 = (eta               / 1440 * 100).toFixed(3) + '%';
+  const xD1 = (etd               / 1440 * 100).toFixed(3) + '%';
+  const xD2 = ((etd + TRAJ_RISE) / 1440 * 100).toFixed(3) + '%';
+  const yTop = 0;
+  const yGnd = TRAJ_ABOVE; // in SVG coords (sky→gslot)
+
+  const mkLine = (x1,y1,x2,y2) => {
+    const l = document.createElementNS(ns,'line');
+    l.setAttribute('x1',x1); l.setAttribute('y1',y1);
+    l.setAttribute('x2',x2); l.setAttribute('y2',y2);
+    l.setAttribute('stroke','#64748b');
+    l.setAttribute('stroke-width','1.5');
+    l.setAttribute('stroke-dasharray','5,4');
+    l.setAttribute('opacity','0.65');
+    return l;
+  };
+  svg.appendChild(mkLine(xA1, yTop, xA2, yGnd));  // approach
+  svg.appendChild(mkLine(xD1, yGnd, xD2, yTop));  // departure
+
+  // Small ETA / ETD tick marks
+  const mkTick = (xPct, label) => {
+    const g = document.createElementNS(ns,'g');
+    const line = document.createElementNS(ns,'line');
+    line.setAttribute('x1', xPct); line.setAttribute('y1', yGnd - 4);
+    line.setAttribute('x2', xPct); line.setAttribute('y2', yGnd + 4);
+    line.setAttribute('stroke','#f59e0b'); line.setAttribute('stroke-width','1.5');
+    const txt = document.createElementNS(ns,'text');
+    txt.setAttribute('x', xPct); txt.setAttribute('y', yGnd - 6);
+    txt.setAttribute('text-anchor','middle');
+    txt.setAttribute('font-size','7');
+    txt.setAttribute('font-family','monospace');
+    txt.setAttribute('fill','#f59e0b');
+    txt.setAttribute('font-weight','700');
+    txt.textContent = label;
+    g.appendChild(line); g.appendChild(txt);
+    return g;
+  };
+  svg.appendChild(mkTick(xA2, 'ETA'));
+  svg.appendChild(mkTick(xD1, 'ETD'));
+
+  wrap.appendChild(svg);
+
+  // ── Plane badge (circle + icon, high-contrast) ──
+  const plane = document.createElement('div');
+  plane.style.cssText = [
+    'position:absolute',
+    'width:20px','height:20px',
+    'border-radius:50%',
+    'background:#1e40af',
+    'color:#fff',
+    'font-size:11px',
+    'line-height:20px',
+    'text-align:center',
+    'box-shadow:0 2px 6px rgba(0,0,0,.45)',
+    'border:1.5px solid rgba(255,255,255,.7)',
+    'transition:left .6s linear,top .6s linear,transform .4s ease,background .3s ease',
+    'pointer-events:none',
+    'display:none',
+    'z-index:20',
+    'user-select:none',
+  ].join(';');
+  plane.textContent = '✈';
+  wrap.appendChild(plane);
+
+  trackWrap.style.position = 'relative';
+  trackWrap.style.overflow  = 'visible';
+  trackWrap.appendChild(wrap);
+
+  ganttPlanes[task.id] = { plane, eta, etd };
+  updateSinglePlane(task.id);
+}
+
+function updateSinglePlane(taskId){
+  const p = ganttPlanes[taskId];
+  if(!p) return;
+  const { plane, eta, etd, wrap } = p;
+
+  // Only animate on today's date
+  if(selectedDate !== localDateStr(new Date())){ plane.style.display='none'; return; }
+
+  const now    = new Date();
+  const nowMin = now.getHours()*60 + now.getMinutes();
+  const approachStart = eta  - TRAJ_RISE;
+  const departureEnd  = etd  + TRAJ_RISE;
+
+  if(nowMin < approachStart || nowMin > departureEnd){ plane.style.display='none'; return; }
+
+  // ── Measure real gslot y-centre relative to wrap ──
+  // wrap is position:absolute inside trackWrap; gslot is inside .track inside trackWrap.
+  // We measure the gslot element position so we don't need to assume padding/height values.
+  const gslotEl = document.getElementById('GS' + taskId);
+  const wrapEl  = wrap;
+  let gndY = TRAJ_YGND; // fallback to constant if DOM not ready yet
+  if(gslotEl && wrapEl){
+    const gr  = gslotEl.getBoundingClientRect();
+    const wr  = wrapEl.getBoundingClientRect();
+    gndY = (gr.top + gr.height / 2) - wr.top; // gslot centre relative to wrap top
+  }
+  const skyY = gndY - TRAJ_ABOVE;
+  const HALF = 10; // half of 20px badge
+
+  plane.style.display = 'block';
+  let xPct, yPx, angle;
+
+  if(nowMin <= eta){
+    // ── Approaching — blue badge, nose down ──
+    const prog = (nowMin - approachStart) / TRAJ_RISE;
+    xPct  = (approachStart + TRAJ_RISE * prog) / 1440 * 100;
+    yPx   = skyY + (gndY - skyY) * prog - HALF;
+    angle = 32;
+    plane.style.background = '#1e40af';
+  } else if(nowMin <= etd){
+    // ── On ground — orange badge, level ──
+    const prog = (nowMin - eta) / Math.max(etd - eta, 1);
+    xPct  = (eta + (etd - eta) * prog) / 1440 * 100;
+    yPx   = gndY - HALF;
+    angle = 0;
+    plane.style.background = '#c2410c'; // deep orange, contrasts amber gslot
+  } else {
+    // ── Departing — green badge, nose up ──
+    const prog = (nowMin - etd) / TRAJ_RISE;
+    xPct  = (etd + TRAJ_RISE * prog) / 1440 * 100;
+    yPx   = gndY - (gndY - skyY) * prog - HALF;
+    angle = -32;
+    plane.style.background = '#15803d';
+  }
+
+  plane.style.left      = `calc(${xPct.toFixed(3)}% - ${HALF}px)`;
+  plane.style.top       = `${yPx.toFixed(1)}px`;
+  plane.style.transform = `rotate(${angle}deg)`;
+  plane.style.opacity   = '1';
+}
+
+function updateAllPlanes(){
+  Object.keys(ganttPlanes).forEach(updateSinglePlane);
+}
 
 // ══ GANTT — layout en 3 columnas separadas ══
 function renderGantt(){
   mTW();
+  ganttPlanes = {}; // reset animated planes for this render
   const isAdmin=(currentRole==='superadmin'||currentRole==='supervisor'||currentRole==='admin');
   const dt=dayTasks();
   document.getElementById('gantt-date-lbl').textContent=fmtDateLong(selectedDate);
@@ -1261,7 +1610,7 @@ function renderGantt(){
     const despFullN=t.despacho?techs.find(s=>s.id===t.despacho)?.name?.split(' ').slice(0,2).join(' ')||'—':'—';
     const infoDiv=document.createElement('div');
     infoDiv.style.cssText='width:210px;flex-shrink:0;padding-right:10px;padding-top:8px;min-width:0';
-    const station = window._station||'PUJ';
+    const station = activeStation();
     // Look up flight info from flightsData if OT doesn't have it
     let _arrOrigin=t.arrOrigin||'', _depDest=t.depDest||'', _arrFlt=t.arrFlt||'', _depFlt=t.depFlt||'';
     // Pre-calculate delay for this task (used in route badge + status label)
@@ -1301,7 +1650,7 @@ function renderGantt(){
       </div>
       ${(_arrOrigin||_depDest)?`<div style="display:flex;align-items:center;gap:3px;margin-top:4px;flex-wrap:wrap">
         ${_arrOrigin?`<span style="background:#dbeafe;color:#1e40af;padding:1px 7px;border-radius:4px;font-weight:800;font-size:11px;font-family:monospace">${esc(_arrOrigin)}</span><span style="color:#94a3b8;margin:0 2px">→</span>`:''}
-        <span style="background:#0f2a66;color:#fff;padding:1px 7px;border-radius:4px;font-weight:800;font-size:11px;font-family:monospace">${esc(window._station||'PUJ')}</span>
+        <span style="background:#0f2a66;color:#fff;padding:1px 7px;border-radius:4px;font-weight:800;font-size:11px;font-family:monospace">${esc(activeStation())}</span>
         ${_depDest?`<span style="color:#94a3b8;margin:0 2px">→</span><span style="background:${_taskLate?'#fef2f2':'#dbeafe'};color:${_taskLate?'#dc2626':'#1e40af'};padding:1px 7px;border-radius:4px;font-weight:800;font-size:11px;font-family:monospace">${esc(_depDest)}</span>`:''}</div>`:''}
       <div style="font-size:9px;color:#94a3b8;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(t.wo)}</div>
       <div style="font-size:9px;color:#475569;margin-top:3px;line-height:1.6">
@@ -1328,7 +1677,7 @@ function renderGantt(){
 
     // ─ TRACK (flex:1) ─
     const trackWrap=document.createElement('div');
-    trackWrap.style.cssText='flex:1;min-width:0;padding-top:8px';
+    trackWrap.style.cssText='flex:1;min-width:0;padding-top:8px;position:relative;overflow:visible';
     trackWrap.innerHTML=`
       <div class="track" id="TR${t.id}" style="overflow:hidden">
         <div class="${t.aog?'gslot aog':'gslot'}" id="GS${t.id}" style="left:${gL};width:${
@@ -1390,6 +1739,7 @@ function renderGantt(){
         </div>
       </div>`;
     rowWrap.appendChild(trackWrap);
+    addFlightPlane(t, trackWrap); // ✈ approach / ground / departure animation
 
     // ─ ACTIONS (fixed 80px) ─
     const actDiv=document.createElement('div');
@@ -1571,6 +1921,8 @@ function renderGantt(){
     }
   });
   kpis();
+  // Position all plane badges now that rows are in the DOM
+  requestAnimationFrame(updateAllPlanes);
 }
 
 // ══ TOOLTIPS ══
@@ -1603,7 +1955,7 @@ async function saveComment(id,val){
   if(!FB)return;
   const data={comments:val};
   if(currentRole==='tech') data.commentBy=currentUserName;
-  await FB.db.collection(AIRLINE_ID).doc(window._station||'PUJ').collection('tasks').doc(id).update(data);
+  await FB.db.collection(AIRLINE_ID).doc(activeStation()).collection('tasks').doc(id).update(data);
 }
 
 async function commentPhotoSelected(id, input){
@@ -1612,8 +1964,8 @@ async function commentPhotoSelected(id, input){
   const lbl=document.getElementById('PHOTO-LBL'+id);
   if(lbl){ lbl.textContent='⏳ Subiendo...'; lbl.style.color='#f59e0b'; }
   try{
-    const {url}=await uploadToSupabase(file,`${window._station||'PUJ'}/comments`);
-    await FB.db.collection(AIRLINE_ID).doc(window._station||'PUJ').collection('tasks').doc(id).update({
+    const {url}=await uploadToSupabase(file,`${activeStation()}/comments`);
+    await FB.db.collection(AIRLINE_ID).doc(activeStation()).collection('tasks').doc(id).update({
       commentPhotoUrl:url,
       commentPhotoBy:currentUserName,
     });
@@ -1626,7 +1978,7 @@ async function commentPhotoSelected(id, input){
 
 async function removeCommentPhoto(id){
   if(!FB)return;
-  await FB.db.collection(AIRLINE_ID).doc(window._station||'PUJ').collection('tasks').doc(id).update({
+  await FB.db.collection(AIRLINE_ID).doc(activeStation()).collection('tasks').doc(id).update({
     commentPhotoUrl:'',commentPhotoBy:''
   });
   toast('🗑 Foto eliminada');
@@ -1665,13 +2017,13 @@ document.addEventListener('mouseup',async e=>{
   else nd=Math.max(15,Math.min(1440-drag.s0,snap5(drag.d0+dm)));
   const id=drag.id; drag=null;
   document.body.style.cursor=''; document.body.style.userSelect='';
-  if(FB)await FB.db.collection(AIRLINE_ID).doc(window._station||'PUJ').collection('tasks').doc(id).update({start:ns,dur:nd});
+  if(FB)await FB.db.collection(AIRLINE_ID).doc(activeStation()).collection('tasks').doc(id).update({start:ns,dur:nd});
   toast('✈ Horario actualizado');
 });
 // ══ REPORTS — anomaly reporting (no login required) ══
 let activeReports = [];
 let plans = [];
-let repStation = 'PUJ';
+let repStation = '';
 
 // ── Foto de evidencia en reportes públicos ──
 let repPhotoFile = null;
@@ -1848,7 +2200,7 @@ function renderNotifConfig(){
 
 async function saveNotifConfig(){
   if(!FB){toast('⚠ Sin conexión',true);return;}
-  const st=window._station||'PUJ';
+  const st=activeStation();
   await FB.db.collection(AIRLINE_ID).doc(st).collection('config').doc('notifications').set(notifConfig);
   document.getElementById('notif-status').textContent='✅ Guardado '+new Date().toLocaleTimeString('es-DO',{hour:'2-digit',minute:'2-digit'});
   toast('✅ Configuración de alertas guardada');
@@ -1856,7 +2208,7 @@ async function saveNotifConfig(){
 
 async function sendAlerts(report){
   if(!notifConfig.enabled) return;
-  const _st=report.station||window._station||'PUJ';
+  const _st=report.station||activeStation();
   const msg=`*🚨 ALERTA MANTENIMIENTO - AIRTECH ASSIST*\n--------------------\n*Aeronave:* ${report.ac||'—'}\n*Base:* ${_st}\n*Hora del reporte:* ${report.timeStr||'—'}\n*Reportado por:* ${report.reportedBy||'—'}\n--------------------\n*ANOMALIA DETECTADA:*\n${report.message||'—'}\n--------------------\n_AirTech Assist - Ground Operations_\n_Mensaje automatico - no responder._`;
 
   // ── Email via EmailJS ──
@@ -1907,13 +2259,13 @@ async function testNotifAlert(){
   if(!notifConfig.emailjsPublicKey&&!(notifConfig.phones||[]).length){
     toast('⚠ Configura al menos un email o WhatsApp',true);return;
   }
-  await sendAlerts({ac:'HI1099',station:window._station||'PUJ',timeStr:new Date().toLocaleTimeString('es-DO',{hour:'2-digit',minute:'2-digit'}),reportedBy:'PRUEBA SISTEMA',message:'Esta es una alerta de prueba del sistema Airtech Assist. Si recibes este mensaje, las alertas están funcionando correctamente.'});
+  await sendAlerts({ac:'HI1099',station:activeStation(),timeStr:new Date().toLocaleTimeString('es-DO',{hour:'2-digit',minute:'2-digit'}),reportedBy:'PRUEBA SISTEMA',message:'Esta es una alerta de prueba del sistema Airtech Assist. Si recibes este mensaje, las alertas están funcionando correctamente.'});
   toast('🧪 Alerta de prueba enviada');
 }
 
 async function resolveReport(reportId){
   if(!FB) return;
-  const st=window._station||'PUJ';
+  const st=activeStation();
   await FB.db.collection(AIRLINE_ID).doc(st).collection('reports').doc(reportId).update({resolved:true, resolvedAt:Date.now(), resolvedBy:currentUserName});
   toast('✅ Reporte resuelto');
 }
@@ -1935,7 +2287,7 @@ async function deliverAircraft(id, ac){
     infoEl.innerHTML = '<strong style="font-size:14px">'+esc(ac)+'</strong> &nbsp; WO: '+esc(t.wo||'—')+'<br><span style="color:#64748b;font-size:11px">ETA '+hhmm(t.gs)+' ETD '+hhmm(t.ge)+'</span>';
   }
   document.getElementById('delivery-modal-title').textContent = 'Entregar ' + ac + ' a operaciones';
-  const st = window._station||'PUJ';
+  const st = activeStation();
   const relatedPlans = plans.filter(p=>
     p.ac===ac && (t?(p.wo||'').toUpperCase()===(t.wo||'').toUpperCase():true) &&
     p.station===st && p.status!=='done'
@@ -1985,7 +2337,7 @@ async function confirmDelivery(){
   const btn=document.getElementById('delivery-confirm-btn');
   btn.textContent='Guardando...'; btn.disabled=true;
   try{
-    const st=window._station||'PUJ';
+    const st=activeStation();
     const reason=(document.getElementById('delivery-reason-input').value||'').trim();
     const hasUndone=Object.values(_deliveryTaskStates).some(s=>s==='undone');
     if(hasUndone&&!reason){ toast('Escribe el motivo para las tareas no realizadas',true); btn.textContent='Confirmar entrega'; btn.disabled=false; return; }
@@ -2041,7 +2393,7 @@ async function confirmDelivery(){
 }
 
 
-async function delTask(id){if(currentRole==='tech'){toast('⛔ Sin permisos',true);return;}if(!confirm('¿Eliminar esta OT?'))return;if(!FB)return;await FB.db.collection(AIRLINE_ID).doc(window._station||'PUJ').collection('tasks').doc(id).delete();toast('OT eliminada');}
+async function delTask(id){if(currentRole==='tech'){toast('⛔ Sin permisos',true);return;}if(!confirm('¿Eliminar esta OT?'))return;if(!FB)return;await FB.db.collection(AIRLINE_ID).doc(activeStation()).collection('tasks').doc(id).delete();toast('OT eliminada');}
 
 // ══ DEMAND ══
 function renderDemand(){const hrs=demandHrs(),maxV=Math.max(...hrs,1);const chart=document.getElementById('dchart');chart.innerHTML='';const xEl=document.getElementById('dxaxis');xEl.innerHTML='';hrs.forEach((v,i)=>{const p=v>0?(v/maxV*100):1.5;const col=v===0?'#e2e8f0':v/maxV>0.75?'#dc2626':v/maxV>0.4?'#2563eb':'#60a5fa';const wrap=document.createElement('div');wrap.className='bar-col';wrap.innerHTML=`<div class="bct">${v} técnico${v!==1?'s':''}</div><div class="bar-fill" style="height:${p}%;background:${col}"></div>`;chart.appendChild(wrap);const lbl=document.createElement('div');lbl.className='x-lbl';lbl.textContent=i%3===0?(i<10?'0':'')+i+'h':'';xEl.appendChild(lbl);});}
@@ -2052,36 +2404,176 @@ function renderStaff(){
   const isAdmin=(currentRole==='superadmin'||currentRole==='supervisor'||currentRole==='admin');
   const tb=document.getElementById('stbody');tb.innerHTML='';
   document.getElementById('roster-title').textContent=`👥 Roster de técnicos (${techs.length})`;
+
+  // Show/hide admin controls
+  ['btn-add-tech','btn-import-roster','btn-clear-roster'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el) el.style.display=isAdmin?'':'none';
+  });
+  const shiftPanel=document.getElementById('shift-config-panel');
+  if(shiftPanel) shiftPanel.style.display=currentRole==='superadmin'?'':'none';
+  renderShiftEditor();
+
+  // Build shift dropdown options
+  const shiftOpts=shiftDefs.map(sh=>
+    `<option value="${sh.id}">${sh.emoji||'⏰'} ${sh.name} (${sh.start}–${sh.end})</option>`
+  ).join('');
+  // Also populate new-tech-shift select
+  const ntShift=document.getElementById('new-tech-shift');
+  if(ntShift){ ntShift.innerHTML=shiftOpts; }
+
+  const assigned=techAssignedHours();
   techs.forEach((s,i)=>{
     const tr=document.createElement('tr');
     const rc={FIRMA:'#dbeafe',GASEO:'#dcfce7',DESPACHO:'#fef9c3','NO-FIRMA':'#f0fdf4',ASISTENTE:'#fef3c7'}[s.role]||'#f1f5f9';
-    // Calculate remaining hours for this tech
-    const assigned=techAssignedHours();
     const workedH=assigned[s.id]||0;
     const remaining=Math.max(0,(s.hours||0)-workedH);
-    const pct=s.hours>0?Math.round((remaining/s.hours)*100):0;
-    const barColor=pct>60?'#22c55e':pct>30?'#f59e0b':'#ef4444';
+    const pct2=s.hours>0?Math.round((remaining/s.hours)*100):0;
+    const barColor=pct2>60?'#22c55e':pct2>30?'#f59e0b':'#ef4444';
     const hoursCell=`<td style="min-width:90px">
       <div style="display:flex;align-items:center;gap:6px">
         <div style="flex:1;height:6px;background:#f1f5f9;border-radius:3px;overflow:hidden">
-          <div style="width:${pct}%;height:100%;background:${barColor};border-radius:3px;transition:width .3s"></div>
+          <div style="width:${pct2}%;height:100%;background:${barColor};border-radius:3px;transition:width .3s"></div>
         </div>
         <span style="font-size:10px;font-weight:700;color:${barColor};white-space:nowrap">${remaining%1===0?remaining:remaining.toFixed(1)}h libre</span>
       </div>
-      <div style="font-size:9px;color:#94a3b8;margin-top:1px">${workedH>0?'Asignado: '+( workedH%1===0?workedH:workedH.toFixed(1))+'h':'Sin asignación'}</div>
+      <div style="font-size:9px;color:#94a3b8;margin-top:1px">${workedH>0?'Asignado: '+(workedH%1===0?workedH:workedH.toFixed(1))+'h':'Sin asignación'}</div>
     </td>`;
+    // Shift display: match by ID or by old time-string format
+    const shiftLabel=()=>{
+      const sd=shiftDefs.find(x=>x.id===s.shift);
+      if(sd) return `${sd.emoji||'⏰'} ${sd.name}`;
+      return s.shift||'—'; // legacy time string
+    };
+    // Shift select with current value
+    const shiftSelectOpts=shiftDefs.map(sh=>
+      `<option value="${sh.id}" ${s.shift===sh.id?'selected':''}>${sh.emoji||'⏰'} ${sh.name} (${sh.start}–${sh.end})</option>`
+    ).join('');
     if(isAdmin){
-      tr.innerHTML=`<td style="color:#94a3b8;font-size:11px;font-weight:600">${i+1}</td><td><input class="editable" value="${esc(s.name)}" onchange="updTech('${s.id}','name',this.value.toUpperCase())" style="min-width:170px"></td><td><select class="sel-sm" onchange="setRole('${s.id}',this.value)" style="background:${rc}"><option value="FIRMA" ${s.role==='FIRMA'?'selected':''}>FIRMA (6h)</option><option value="NO-FIRMA" ${s.role==='NO-FIRMA'?'selected':''}>NO-FIRMA (3h)</option><option value="ASISTENTE" ${s.role==='ASISTENTE'?'selected':''}>ASISTENTE (1.5h)</option><option value="GASEO" ${s.role==='GASEO'?'selected':''}>⛽ GASEO</option><option value="DESPACHO" ${s.role==='DESPACHO'?'selected':''}>✈ DESPACHO</option></select></td><td><input class="h-inp" type="number" min="0.5" max="24" step="0.5" value="${s.hours}" onchange="updTech('${s.id}','hours',parseFloat(this.value))"></td><td><select class="sel-sm" onchange="updTech('${s.id}','shift',this.value)"><option value="05:00–14:00" ${s.shift==='05:00–14:00'?'selected':''}>🌅 05–14h</option><option value="13:00–22:00" ${s.shift==='13:00–22:00'?'selected':''}>🌇 13–22h</option><option value="21:00–05:00" ${s.shift==='21:00–05:00'?'selected':''}>🌙 21–05h</option></select></td>${hoursCell}<td><button class="delbtn" onclick="delTech('${s.id}')">✕</button></td>`;
+      tr.innerHTML=`
+        <td style="color:#94a3b8;font-size:11px;font-weight:600">${i+1}</td>
+        <td><input class="editable" value="${esc(s.name)}" onchange="updTech('${s.id}','name',this.value.toUpperCase())" style="min-width:160px;text-transform:uppercase"></td>
+        <td><select class="sel-sm" onchange="setRole('${s.id}',this.value)" style="background:${rc}">
+          <option value="FIRMA" ${s.role==='FIRMA'?'selected':''}>FIRMA</option>
+          <option value="NO-FIRMA" ${s.role==='NO-FIRMA'?'selected':''}>NO-FIRMA</option>
+          <option value="ASISTENTE" ${s.role==='ASISTENTE'?'selected':''}>ASISTENTE</option>
+          <option value="GASEO" ${s.role==='GASEO'?'selected':''}>⛽ GASEO</option>
+          <option value="DESPACHO" ${s.role==='DESPACHO'?'selected':''}>✈ DESPACHO</option>
+        </select></td>
+        <td><input class="h-inp" type="number" min="0.5" max="24" step="0.5" value="${s.hours}" onchange="updTech('${s.id}','hours',parseFloat(this.value))"></td>
+        <td><select class="sel-sm" onchange="updTech('${s.id}','shift',this.value)">${shiftSelectOpts}</select></td>
+        ${hoursCell}
+        <td><button class="delbtn" onclick="delTech('${s.id}')" title="Eliminar técnico">✕</button></td>`;
     } else {
-      tr.innerHTML=`<td style="color:#94a3b8;font-size:11px">${i+1}</td><td style="font-weight:500">${esc(s.name)}</td><td><span style="background:${rc};padding:2px 8px;border-radius:20px;font-size:10px;font-weight:600">${s.role}</span></td><td style="text-align:center">${s.hours}h</td><td>${s.shift}</td>${hoursCell}<td></td>`;
+      tr.innerHTML=`
+        <td style="color:#94a3b8;font-size:11px">${i+1}</td>
+        <td style="font-weight:500">${esc(s.name)}</td>
+        <td><span style="background:${rc};padding:2px 8px;border-radius:20px;font-size:10px;font-weight:600">${s.role}</span></td>
+        <td style="text-align:center">${s.hours}h</td>
+        <td>${shiftLabel()}</td>
+        ${hoursCell}<td></td>`;
     }
     tb.appendChild(tr);
   });
 }
-async function updTech(id,f,v){if(currentRole==='tech')return;if(!FB)return;await FB.db.collection(AIRLINE_ID).doc(window._station||'PUJ').collection('techs').doc(id).update({[f]:f==='hours'?parseFloat(v):v});}
-async function setRole(id,role){if(currentRole==='tech')return;const h={FIRMA:6,'NO-FIRMA':3,ASISTENTE:1.5,GASEO:9,DESPACHO:9}[role]||6;if(!FB)return;await FB.db.collection(AIRLINE_ID).doc(window._station||'PUJ').collection('techs').doc(id).update({role,hours:h});toast('✔ '+role+' → '+h+'h');}
-async function delTech(id){if(currentRole==='tech')return;if(!FB)return;await FB.db.collection(AIRLINE_ID).doc(window._station||'PUJ').collection('techs').doc(id).delete();}
-async function addTech(){if(currentRole==='tech')return;if(!FB)return;await FB.addDoc(FB.TECHS(window._station),{name:'NUEVO TÉCNICO',role:'FIRMA',hours:6,shift:'05:00–14:00'});}
+
+function openAddTechForm(){
+  const form=document.getElementById('add-tech-form');
+  if(form){ form.style.display='block'; document.getElementById('new-tech-name')?.focus(); }
+  renderShiftEditor(); // ensure shift options are populated
+}
+
+async function confirmAddTech(){
+  const name=(document.getElementById('new-tech-name')?.value||'').trim().toUpperCase();
+  const role=document.getElementById('new-tech-role')?.value||'FIRMA';
+  const shift=document.getElementById('new-tech-shift')?.value||shiftDefs[0]?.id||'A';
+  if(!name){ toast('Ingresa el nombre del técnico',true); return; }
+  if(!FB) return;
+  const defaultHours={FIRMA:6,'NO-FIRMA':3,ASISTENTE:1.5,GASEO:9,DESPACHO:9}[role]||6;
+  const station=window._station;
+  await FB.db.collection(AIRLINE_ID).doc(station).collection('techs').add({
+    name, role, hours:defaultHours, shift, createdAt:Date.now(), createdBy:currentUserName
+  });
+  document.getElementById('new-tech-name').value='';
+  document.getElementById('add-tech-form').style.display='none';
+  toast('✅ '+name+' agregado al roster');
+}
+
+async function updTech(id,f,v){
+  if(currentRole==='tech') return;
+  if(!FB) return;
+  const st=window._station;
+  await FB.db.collection(AIRLINE_ID).doc(st).collection('techs').doc(id).update({[f]:f==='hours'?parseFloat(v):v});
+}
+
+async function setRole(id,role){
+  if(currentRole==='tech') return;
+  const h={FIRMA:6,'NO-FIRMA':3,ASISTENTE:1.5,GASEO:9,DESPACHO:9}[role]||6;
+  if(!FB) return;
+  const st=window._station;
+  await FB.db.collection(AIRLINE_ID).doc(st).collection('techs').doc(id).update({role,hours:h});
+  toast('✔ '+role+' → '+h+'h');
+}
+
+async function delTech(id){
+  if(currentRole==='tech') return;
+  if(!confirm('¿Eliminar este técnico del roster?')) return;
+  if(!FB) return;
+  const st=window._station;
+  await FB.db.collection(AIRLINE_ID).doc(st).collection('techs').doc(id).delete();
+  toast('Técnico eliminado');
+}
+
+async function clearAllTechs(){
+  if(currentRole!=='superadmin') return;
+  if(!confirm(`⚠️ ¿Borrar TODO el roster de ${window._station}?\n\nEsta acción no se puede deshacer.`)) return;
+  if(!FB) return;
+  const st=window._station;
+  const snap=await FB.db.collection(AIRLINE_ID).doc(st).collection('techs').get();
+  const batch=FB.db.batch();
+  snap.docs.forEach(d=>batch.delete(d.ref));
+  await batch.commit();
+  toast('🗑 Roster de '+st+' vaciado — agrega nuevos técnicos');
+}
+
+function importRosterExcel(){ document.getElementById('roster-excel-input')?.click(); }
+
+function handleRosterExcel(input){
+  const file=input.files[0]; if(!file) return;
+  input.value='';
+  const reader=new FileReader();
+  reader.onload=function(e){
+    try{
+      const wb=XLSX.read(e.target.result,{type:'binary'});
+      const ws=wb.Sheets[wb.SheetNames[0]];
+      const raw=XLSX.utils.sheet_to_json(ws,{defval:''});
+      if(!raw.length){ toast('Archivo vacío',true); return; }
+      function nrm(s){ return String(s).normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[\s\-]/g,'_').toUpperCase(); }
+      const hdrs=Object.keys(raw[0]);
+      const find=list=>hdrs.find(h=>list.includes(nrm(h)))||null;
+      const colName=find(['NOMBRE','NAME','TECNICO','TECHNICIAN','EMPLEADO','PERSONAL']);
+      const colRole=find(['CATEGORIA','ROL','ROLE','CATEGORY','TIPO']);
+      const colShift=find(['TURNO','SHIFT','HORARIO']);
+      if(!colName){ toast('No se encontró columna NOMBRE',true); return; }
+      const rows=raw.map(r=>({
+        name:String(r[colName]||'').trim().toUpperCase(),
+        role:String(colRole?r[colRole]:'FIRMA').trim().toUpperCase()||'FIRMA',
+        shift:String(colShift?r[colShift]:'').trim().toUpperCase()||shiftDefs[0]?.id||'A',
+      })).filter(r=>r.name);
+      if(!rows.length){ toast('Sin filas válidas',true); return; }
+      if(!confirm(`Importar ${rows.length} técnicos al roster de ${window._station}?`)) return;
+      const st=window._station;
+      const batch=FB.db.batch();
+      const defaultH={FIRMA:6,'NO-FIRMA':3,ASISTENTE:1.5,GASEO:9,DESPACHO:9};
+      rows.forEach(r=>{
+        const ref=FB.db.collection(AIRLINE_ID).doc(st).collection('techs').doc();
+        batch.set(ref,{name:r.name,role:r.role,hours:defaultH[r.role]||6,shift:r.shift,createdAt:Date.now(),createdBy:currentUserName});
+      });
+      batch.commit().then(()=>toast('✅ '+rows.length+' técnicos importados')).catch(err=>toast('Error: '+err.message,true));
+    }catch(err){ console.error(err); toast('Error leyendo Excel: '+err.message,true); }
+  };
+  reader.readAsBinaryString(file);
+}
 
 // ══ MODAL OT (admin only) ══
 // ══ OT ATTACHMENTS ══
@@ -2159,7 +2651,7 @@ async function uploadOTFile(file){
   fill.style.width='5%'; // show activity immediately
 
   try{
-    const st=window._station||'PUJ';
+    const st=activeStation();
     const {url,path}=await uploadToSupabase(file, `${st}/ot_files`);
     pendingOTFiles.push({name:file.name, url, type:file.type, path});
     renderOTAttachTags();
@@ -2332,6 +2824,7 @@ document.getElementById('fm-dm').addEventListener('input',updDurPrev);
 async function submitOT(){
   if(currentRole==='tech'){toast('⛔ Sin permisos para crear OTs',true);return;}
   if(!FB){toast('⚠ Sin conexión',true);return;}
+  if(!window._station){toast('⚠ Selecciona una base antes de guardar la OT',true);return;}
   const ac=document.getElementById('fm-ac').value,wo=document.getElementById('fm-wo').value.toUpperCase();
   if(!ac||!wo){toast('⚠ Completa matrícula y código WO',true);return;}
   const st=toMin(document.getElementById('fm-st').value||'08:00');
@@ -2360,7 +2853,7 @@ async function submitOT(){
   const data={ac,wo,start:st,dur,staff:[...formTechs],gs,ge,taskDays,aog,
     arrFlt,arrOrigin,depFlt,depDest,gaseo:document.getElementById('fm-gaseo').value||'',despacho:document.getElementById('fm-despacho').value||'',comments:document.getElementById('fm-comments').value||'',taskDate:otTaskDate,attachments:[...pendingOTFiles],linkedTasks:linkedTasksData};
   try{
-    if(editingTaskId){await FB.db.collection(AIRLINE_ID).doc(window._station||'PUJ').collection('tasks').doc(editingTaskId).update(data);toast('💾 OT actualizada: '+wo);}
+    if(editingTaskId){await FB.db.collection(AIRLINE_ID).doc(window._station).collection('tasks').doc(editingTaskId).update(data);toast('💾 OT actualizada: '+wo);}
     else{await FB.addDoc(FB.TASKS(window._station),{...data,createdBy:currentUser?.uid||'anon',createdBy_name:currentUserName,createdAt:Date.now()});boeingChime();toast('☁️ '+wo+' → '+hhmm(st)+' – '+hhmm(st+dur)+'  ('+fdur(dur)+')');}
     closeModal();
   }catch(e){
@@ -2387,7 +2880,7 @@ async function doUpload(file,meta){
   if(file.size>50*1024*1024){toast(`⚠ ${file.name} supera 50 MB`,true);return;}
   const pw=document.getElementById('prog-wrap'),pf=document.getElementById('prog-fill'),pl=document.getElementById('prog-lbl');
   pw.style.display='block'; pf.style.width='5%'; pl.textContent=`Subiendo ${file.name}…`;
-  const st=window._station||'PUJ';
+  const st=activeStation();
   try{
     const {url,path}=await uploadToSupabase(file, `${st}/docs`);
     if(FB)await FB.addDoc(FB.DOCS(st),{
@@ -2437,7 +2930,7 @@ function renderDocs(){
     list.appendChild(card);
   });
 }
-async function delDoc(id){if(currentRole==='tech')return;if(!confirm('¿Eliminar?'))return;if(!FB)return;await FB.db.collection(AIRLINE_ID).doc(window._station||'PUJ').collection('documents').doc(id).delete();toast('🗑 Eliminado');}
+async function delDoc(id){if(currentRole==='tech')return;if(!confirm('¿Eliminar?'))return;if(!FB)return;await FB.db.collection(AIRLINE_ID).doc(activeStation()).collection('documents').doc(id).delete();toast('🗑 Eliminado');}
 
 // ══ GESTIÓN DE USUARIOS ══
 let editingUserId=null;
@@ -2491,7 +2984,11 @@ async function renderUsers(){
     const sec=document.createElement('div');
     sec.innerHTML=`<div style="font-size:10px;font-weight:700;color:${g.color};text-transform:uppercase;letter-spacing:.06em;padding:8px 4px 4px;margin-top:8px">${g.label} — ${members.length} persona(s)</div>`;
     members.forEach(u=>{
-      const stLbl={PUJ:'🏖️ PUJ',SDQ:'🏙️ SDQ',AMBAS:'🌐 Ambas'}[u.station]||'🌐 Ambas';
+      const stLbl=stations.find(s=>s.code===u.station)?.code
+        ? '📍 '+u.station
+        : u.station==='AMBAS'
+          ? '🌐 Todas'
+          : '🌐 Todas';
       const row=document.createElement('div');
       row.style.cssText=`display:flex;align-items:center;gap:8px;padding:10px 12px;background:${u.active?'#fff':'#f8fafc'};border:1.5px solid ${u.active?'#e2e8f0':'#fca5a5'};border-radius:10px;margin-bottom:6px;${u.active?'':'opacity:.6'}`;
       row.innerHTML=`
@@ -2525,6 +3022,9 @@ async function renderUsers(){
 }
 
 function openAddUser(){
+  if(!editingUserId && allUsers.filter(u=>u.active!==false).length >= planCfg().maxUsers){
+    showUpgradeModal('maxUsers'); return;
+  }
   editingUserId=null;
   document.getElementById('user-modal-title').textContent='➕ Agregar usuario';
   document.getElementById('um-name').value='';
@@ -2647,6 +3147,7 @@ async function loadStationsAdmin(){
 
 function openAddStation(){
   if(currentRole!=='superadmin'){ toast('⛔ Solo Bladimir puede agregar bases',true); return; }
+  if(stations.length >= planCfg().maxBases){ showUpgradeModal('bases'); return; }
   const code=prompt('Código IATA de la nueva base (ej: JFK, MIA, STI):');
   if(!code||code.trim().length<2) return;
   const name=prompt('Nombre completo de la base (ej: New York JFK):');
@@ -2679,7 +3180,7 @@ async function deleteStation(code){
   }catch(e){ toast('❌ Error: '+e.message,true); }
 }
 
-const TASK_CATALOG_DEFAULT = [{"code":"B73X-LCL-SVC-MAX-ARA","name":"SERVICE CHECKLIST","estMin":30},{"code":"B73X-34-00-CAT-ARA","name":"LAND VERIFY FOR CAT-II CAT-III","estMin":30},{"code":"B73X-72-240-02-01","name":"RIGHT ENGINE HPT STAGE 1 BLADES","estMin":18},{"code":"B73X-72-260-02-01","name":"RIGHT ENGINE HPT STAGE 2 NOZZLES","estMin":18},{"code":"B73X-73-030-02-01","name":"RIGHT ENGINE FUEL NOZZLES","estMin":18},{"code":"B73X-72-230-02-01","name":"RIGHT ENGINE COMBUSTION CHAMBER DOME","estMin":18},{"code":"B73X-72-220-02-01","name":"RIGHT ENGINE COMBUSTION CHAMBER INNER LINER","estMin":18},{"code":"B73X-72-235-02-01","name":"RIGHT ENGINE COMBUSTION CHAMBER RADIAL MIXERS","estMin":18},{"code":"B73X-72-225-02-01","name":"RIGHT ENGINE COMBUSTION CHAMBER OUTER LINER","estMin":18},{"code":"B73X-72-250-02-01","name":"RIGHT ENGINE HPT STAGE 1 NOZZLES","estMin":18},{"code":"B73X-72-245-02-01","name":"RIGHT ENGINE HPT STAGE 2 BLADES","estMin":18},{"code":"B73X-80-010-02-01","name":"RIGHT ENGINE ATS MAGNETIC CHIP PLUG","estMin":18},{"code":"B73X-12-00-001-ARA","name":"AIRCRAFT 360 CHECKLIST","estMin":18},{"code":"B73X-25-DEEP-CLEAN-ARA","name":"PASSENGER CABIN DEEP CLEANING","estMin":12},{"code":"B73X-46-13-01-ARA","name":"FOQA REQUIREMENT - QAR DATA DOWNLOAD FROM ONS","estMin":18},{"code":"B73X-46-13-018-ARA","name":"NFS REPLACEMENT HI1081","estMin":300},{"code":"B73X-23-71-00-970-802-AR2","name":"MAKE A COPY OF THE CVR DATA WITH THE EHHDLU","estMin":18},{"code":"NRTC-0001","name":"DUE TO ENGINEERING REQUEST AIRCRAFT CREDENTIALS","estMin":60},{"code":"B73X-53-00-002-ARA","name":"PERFORMING DVI OF THE FUSELAGE LOOKING FOR MISSING PAINT","estMin":30},{"code":"RST","name":"SURVIVAL KIT CON NUEVO CONTENEDOR","estMin":30},{"code":"B73X-24-020-02-01","name":"RIGHT IDG DELTA P INDICATOR DPI","estMin":30},{"code":"B73X-24-030-01-01","name":"LEFT IDG OIL LEVEL","estMin":30},{"code":"B73X-24-030-02-01","name":"RIGHT IDG OIL LEVEL","estMin":30},{"code":"B73X-24-020-01-01","name":"LEFT IDG DELTA P INDICATOR DPI","estMin":30},{"code":"B73X-57-872-02-01","name":"RIGHT WING","estMin":30},{"code":"B73X-70-800-01-01","name":"POWERPLANT NO. 1","estMin":30},{"code":"B73X-55-800-00-01","name":"VERTICAL FIN AND HORIZONTAL STABILIZER","estMin":30},{"code":"SB-LEAP-1B-72-0074","name":"ENGINE LPT ROTOR STATOR ASSEMBLY INSPECTION OF INTERLOCK GAP LPT BLADE STAGE 1","estMin":90},{"code":"CNR-20250217010","name":"EEC VIBRATION ANALYSIS HEALTH MODULE VAHM FAULT CH B S/N FAKC0545","estMin":90},{"code":"B73X-MAX-AIRTECCHK-4D","name":"MAINTENANCE PREVENTIVE CHECKLIST","estMin":60},{"code":"B73X-31-005-00-01","name":"SCHEDULED MAINTENANCE TASK DISPLAY SYSTEM","estMin":12},{"code":"B73X-25-64-02-CTC-ARA","name":"EMERGENCY KIT INVENTORY","estMin":30},{"code":"B73X-34-51-00-ARA","name":"VOR SYSTEM OPERATIONAL TEST RAD 91.171","estMin":12},{"code":"B73X-24-060-02-01","name":"RIGHT ENGINE IDG SURFACE AIR COOLED OIL COOLERS","estMin":90},{"code":"B73X-21-054-00-01","name":"EQUIPMENT COOLING SUPPLY AND EXHAUST SMOKE DETECTORS","estMin":60},{"code":"B73X-35-130-00-01","name":"PULSE STYLE PORTABLE OXYGEN CYLINDERS A","estMin":30},{"code":"B73X-35-150-00-01","name":"PULSE STYLE PORTABLE OXYGEN CYLINDERS B","estMin":30},{"code":"B73X-34-49-001","name":"UP LOAD SOFTWARE TERRDB","estMin":30},{"code":"B73X-34-61-CTC-ARA","name":"FMCS PERFORMANCE FACTORS ADJUSTMENT","estMin":18},{"code":"B73X-25-FUM-CTC-ARA","name":"FUMIGACION EN CUMPLIMIENTO DE REGULACION CHILENA","estMin":30},{"code":"B73X-LCL-WEEKLY-MAX-ARA","name":"WEEKLY CHECKLIST","estMin":30},{"code":"B73X-25-40-001-ARA","name":"DETAILED VISUAL INSPECTION TO THE LAVATORIES","estMin":30},{"code":"B73X-24-100-00-01","name":"STANDBY POWER CONTROL UNIT DUAL BATTERIES","estMin":30},{"code":"B73X-32-010-01-01","name":"LEFT MAIN GEAR SHOCK STRUT CLEANING","estMin":30},{"code":"B73X-32-060-00-01","name":"CLEAN NOSE LANDING GEAR SHOCK STRUT","estMin":30},{"code":"B73X-32-010-02-01","name":"RIGHT MAIN GEAR SHOCK STRUT CLEANING","estMin":30},{"code":"B73X-29-030-02-01","name":"B HYDRAULIC SYSTEM ELECTRIC MOTOR DRIVEN PUMP CASE DRAIN FILTER","estMin":42},{"code":"B73X-29-090-00-01","name":"A AND B HYDRAULIC SYSTEM RETURN FILTER MODULE DELTA P INDICATION","estMin":18},{"code":"B73X-32-030-01-01","name":"LEFT MAIN LANDING GEAR LUBRICATION","estMin":180},{"code":"B73X-76-030-01-01","name":"SCHEDULED MAINTENANCE TASK DISPLAY SYSTEM MAINT CTRL PGS 76","estMin":6},{"code":"B73X-78-290-01-01","name":"SCHEDULED MAINTENANCE TASK SMT DISPLAY SYSTEM MAINT CTRL PGS","estMin":6},{"code":"B73X-79-020-01-01","name":"SCHEDULED MAINTENANCE TASK DISPLAY SYSTEM MAINT CTRL PGS 79-020","estMin":6},{"code":"B73X-23-040-00-01","name":"VOICE RECORDER AND RECORDER INDEPENDENT POWER SUPPLY","estMin":6},{"code":"B73X-78-280-01-01","name":"SCHEDULED MAINTENANCE TASK DISPLAY SYSTEM MAINT CTRL PGS 78-280","estMin":6},{"code":"B73X-73-020-01-01","name":"SCHEDULED MAINTENANCE TASK DISPLAY SYSTEM MAINT CTRL PGS 73-020","estMin":6},{"code":"B73X-27-170-01-01","name":"LEFT WING TRAILING EDGE FLAP ACTUATION MECHANISM LUBRICATION","estMin":240},{"code":"B73X-57-30-DBC-03","name":"INSPECTION SPEED TAPE LH WINGLET UPPER BLADE MDDR 984","estMin":30},{"code":"B73X-25-64-01-ARA","name":"AUTOMATIC EXTERNAL DEFIBRILATOR AED CHECK RAD 121.803","estMin":24},{"code":"B73X-30-010-00-01","name":"AUTOMATIC AIR DATA SENSOR HEATING","estMin":90},{"code":"B73X-32-030-02-01","name":"RIGHT MAIN LANDING GEAR LUBRICATION","estMin":180},{"code":"B73X-32-300-00-01","name":"BRAKE ACCUMULATOR PRECHARGE PRESSURE","estMin":30},{"code":"B73X-31-31-00-ARA","name":"FUNCTIONAL CHECK REQUIRED PARAMETERS FDR DFDAU OUTPUT RAD 91.609","estMin":30},{"code":"B73X-57-802-01-01","name":"LEFT WING","estMin":30},{"code":"B73X-53-812-00-01","name":"FORWARD CARGO COMPARTMENT","estMin":30},{"code":"B73X-32-800-00-01","name":"NOSE LANDING GEAR AND LANDING GEAR DOORS FROM GROUND","estMin":18},{"code":"B73X-27-040-00-01","name":"RUDDER FEEL AND CENTERING UNIT SPRING SLIDER LUBRICATION","estMin":90},{"code":"B73X-46-13-025-ARA","name":"CSR GENERATION FOR AIRPLANE KEYS","estMin":18},{"code":"NRTC0000-1","name":"DD1700 PARA CIERRE ADMINISTRATIVO","estMin":30},{"code":"B73X-26-510-00-01","name":"INSPECT PORTABLE HALOTRON FIRE EXTINGUISHER","estMin":30},{"code":"B73X-27-110-00-01","name":"HORIZONTAL STABILIZER TRIM ACTUATOR BALLSCREW BALLNUT AND GIMBAL ATTACHMENT FITTINGS INSPECTION","estMin":60},{"code":"27-CMR-07","name":"INSPECT DETAILED HORIZONTAL STABILIZER TRIM ACTUATOR BALLSCREW BALLNUT AND GIMBAL ATTACHMENT FITTINGS","estMin":60},{"code":"B73X-46-13-023-ARA","name":"AIRPLANE KEYS INSTALLATION","estMin":18},{"code":"B73X-47-340-00-01","name":"NITROGEN GENERATING SYSTEM","estMin":12},{"code":"B73X-32-32-001-ARA","name":"MLG LH AND RH FRANGIBLE FITTING INSPECTION","estMin":30},{"code":"B73X-73-21-01-ARA","name":"LEAP-1B CEOD DOWNLOAD EEC DATA DOWNLOAD FROM ONS","estMin":30},{"code":"B73X-21-010-00-01","name":"RECIRCULATION FAN HEPA FILTERS","estMin":60},{"code":"B73X-21-040-00-01","name":"E/E COOLING SUPPLY FAN FILTER","estMin":60},{"code":"B73X-26-300-00-01","name":"LAVATORY FIRE BOTTLE FUSIBLE TIPS AND DISCHARGE TUBES","estMin":60},{"code":"NTRC-00001","name":"DD1731 FUEL TEMP INDICATOR","estMin":90},{"code":"B73X-73-010-01-01","name":"SCHEDULED MAINTENANCE TASK DISPLAY SYSTEM MAINT CTRL PGS 73-010","estMin":12},{"code":"B73X-21-150-00-01","name":"CABIN TEMPERATURE SENSOR FILTERS","estMin":60},{"code":"B73X-53-844-00-01","name":"WING-TO-BODY FAIRING","estMin":24},{"code":"B73X-53-857-00-01","name":"UPPER FUSELAGE","estMin":30},{"code":"B73X-53-830-00-01","name":"AFT CARGO COMPARTMENT","estMin":30},{"code":"B73X-46-13-024-ARA","name":"AIRPLANE KEYS INSTALLATION AND CELLULAR CONNECTION TS HI1133","estMin":30},{"code":"B73X-52-810-01-01","name":"FORWARD PASSENGER DOOR","estMin":30},{"code":"B73X-52-826-02-01","name":"FORWARD GALLEY SERVICE DOOR","estMin":30},{"code":"B73X-52-822-01-01","name":"AFT PASSENGER DOOR","estMin":30},{"code":"B73X-52-838-02-01","name":"AFT GALLEY SERVICE DOOR","estMin":30},{"code":"B73X-52-090-00-01","name":"FORWARD CARGO COMPARTMENT DOOR LATCH TORQUE TUBE BEARINGS AND COUNTER BALANCE MAIN BEARINGS","estMin":30},{"code":"B73X-52-090-00-02","name":"AFT CARGO COMPARTMENT DOOR LATCH TORQUE TUBE BEARINGS AND COUNTER BALANCE MAIN BEARINGS","estMin":30},{"code":"B73X-27-152-02-01","name":"NO 5 FLAP TRANSMISSION ANGLE TEE GEARBOX UNIVERSAL JOINTS","estMin":30},{"code":"B73X-27-152-01-01","name":"NO 4 FLAP TRANSMISSION ANGLE TEE GEARBOX UNIVERSAL JOINTS","estMin":30},{"code":"B73X-57-30-DBC-04","name":"INSPECTION SPEED TAPE RH WINGLET UPPER BLADE MDDR 985","estMin":30},{"code":"B73X-57-30-DBC-01","name":"INSPECTION SPEED TAPE LH WINGLET UPPER BLADE MDDR 944","estMin":30},{"code":"B73X-33-010-00-01","name":"EMERGENCY LIGHTS","estMin":30},{"code":"SB-73-0014-ARA-01-DWI","name":"ENGINE FUEL AND CONTROL PRESSURE SUB SYSTEM PSS PS3 AND P3B SENSING SYSTEM HEATING BLOWOUT AND VACUUM PROCEDURE","estMin":90},{"code":"B73X-38-030-00-01","name":"RESTORE VACUUM BLOWER FILTER","estMin":90},{"code":"B73X-27-056-00-01","name":"STANDBY RUDDER POWER CONTROL UNIT","estMin":60},{"code":"B73X-52-200-00-01","name":"DOOR SENSORS","estMin":120},{"code":"B73X-27-224-00-01","name":"STANDBY HYDRAULIC SYSTEM LEADING EDGE DEVICES UNCOMMANDED MOTION","estMin":60},{"code":"B73X-70-810-02-01","name":"POWERPLANT NO. 2","estMin":30},{"code":"B73X-53-894-00-01","name":"AREA AFT OF THE PRESSURE BULKHEAD","estMin":24},{"code":"B73X-53-800-00-01","name":"LOWER FUSELAGE","estMin":30},{"code":"B73X-52-800-00-01","name":"ENTRY DOORS SERVICE DOORS AUTOMATIC OVERWING EXITS AND CARGO DOORS","estMin":30},{"code":"B73X-32-808-02-01","name":"RIGHT MAIN LANDING GEAR AND LANDING GEAR DOORS FROM GROUND","estMin":30},{"code":"B73X-32-804-01-01","name":"LEFT MAIN LANDING GEAR AND LANDING GEAR DOORS FROM GROUND","estMin":30},{"code":"B73X-57-30-DBC-00","name":"INSPECTION SPEED TAPE LH WINGLET UPPER BLADE MDDR 423","estMin":30},{"code":"ICA-31-002-01-S02","name":"REINSPECTION DL2040M06 03-TM-00084 ICA","estMin":30},{"code":"B73X-78-320-01-01","name":"OPERATIONAL CHECK OF THE LIGHTS IN THE PILOTS OVERHEAD PANEL","estMin":60},{"code":"B73X-25-010-01-01","name":"CAPTAIN SEAT TRACKS AND LOCKING MECHANISM","estMin":60},{"code":"NRTC-00001","name":"DUE TO DD1752 APU FAULT","estMin":0},{"code":"CNR-20250928059","name":"FUEL NOZZLE PILOT PRIMARY ORIFICE COKING EGT PROBE SPREAD DURING START","estMin":0},{"code":"B73X-73-050-01-01","name":"MAINTENANCE MESSAGES ON THE MULTI-FUNCTION DISPLAY 73-050","estMin":6},{"code":"B73X-31-020-00-01","name":"CABIN PRESSURE SWITCH","estMin":120},{"code":"B73X-29-080-00-01","name":"ELECTRIC MOTOR DRIVEN PUMP GROUND FAULT PROTECTION SYSTEM","estMin":120},{"code":"B73X-46-13-003-ARA","name":"NFS SYSTEM CONFIGURATION REPORT","estMin":18},{"code":"B73X-31-120-00-03","name":"DOWNLOAD DIGITAL FLIGHT DATA RECORDER REQUIRED AIRCRAFT PARAMETERS 03","estMin":90},{"code":"B73X-31-120-00-01","name":"DOWNLOAD DIGITAL FLIGHT DATA RECORDER REQUIRED AIRCRAFT PARAMETERS 01","estMin":90},{"code":"B73X-26-310-00-01","name":"LAVATORY HEAT SENSITIVE TAPE","estMin":60},{"code":"DBC-HI1078-4","name":"EROTION TAPE REPETITIVE INSPECTION","estMin":30},{"code":"B73X-24-050-02-01","name":"RIGHT ENGINE QUICK ATTACH DETACH QAD COUPLING","estMin":30},{"code":"B73X-26-050-00-01","name":"ENGINE AND APU FIRE BOTTLE PRESSURE GAUGES","estMin":30},{"code":"B73X-24-050-01-01","name":"LEFT ENGINE QUICK ATTACH DETACH QAD COUPLING","estMin":30},{"code":"B73X-77-020-01-01","name":"MAINTENANCE MESSAGES ON THE MULTI-FUNCTION DISPLAY 77-020","estMin":6},{"code":"B73X-79-030-01-01","name":"MAINTENANCE MESSAGES ON THE MULTI-FUNCTION DISPLAY 79-030","estMin":6},{"code":"74-08-09 R3","name":"PREVENT POSSIBLE FIRES FROM SMOKING MATERIALS IN LAVATORY WASTE RECEPTACLES","estMin":18},{"code":"B73X-25-130-00-01","name":"LAVATORY WASTE COMPARTMENT FLAPPER DOOR AND ACCESS DOOR LATCHING MECHANISM","estMin":18},{"code":"B73X-29-030-01-01","name":"A HYDRAULIC SYSTEM ELECTRIC MOTOR DRIVEN PUMP CASE DRAIN FILTER","estMin":42},{"code":"NRTC-000001","name":"DD1741 RH PACK RAM AIR DOOR SYS INOP IASC SWAP WITH HI1118","estMin":120},{"code":"B73X-27-162-00-01","name":"FLAP SKEW AND FLAP ASYMMETRY SYSTEM","estMin":60},{"code":"B73X-24-010-01-01","name":"LEFT IDG OIL CHANGE","estMin":30},{"code":"B73X-24-040-01-01","name":"LEFT IDG CHARGE AND SCAVENGE FILTERS","estMin":60},{"code":"B73X-79-21-002-ARA","name":"OIL FILTER BYPASS ENGINE 1 HI1081","estMin":90},{"code":"DBC-HI1081-1I","name":"SPEED TAPE INSPECTION EACH 150 FH PERMANENT REPAIR BEFORE 5000 FH","estMin":30},{"code":"B73X-79-010-01-01","name":"SCHEDULED MAINTENANCE TASK DISPLAY SYSTEM MAINT CTRL PGS 79-010","estMin":6},{"code":"B73X-72-120-01-01","name":"FAN COMPARTMENT OVERHEAT SENSORS","estMin":6},{"code":"B73X-77-010-01-01","name":"SCHEDULED MAINTENANCE TASK DISPLAY SYSTEM MAINT CTRL PGS 77-010","estMin":6},{"code":"B73X-80-020-01-01","name":"SCHEDULED MAINTENANCE TASK DISPLAY SYSTEM MAINT CTRL PGS 80-020","estMin":6},{"code":"B73X-27-218-00-01","name":"LEADING EDGE UNCOMMANDED MOTION PROTECTION SYSTEM","estMin":120},{"code":"B73X-27-154-00-01","name":"FLAP LOAD RELIEF SYSTEM","estMin":90},{"code":"B73X-25-100-801-ARA","name":"COCKPIT CLEANING PROCEDURE","estMin":120},{"code":"DET","name":"EXTINGUISHER ASSY","estMin":30},{"code":"B73X-28-21-750-801-ARA","name":"REFUEL ADAPTER INSPECTION","estMin":30},{"code":"B73X-27-181-00-01","name":"SPOILER SPEEDBRAKE CONTROL SYSTEM","estMin":0},{"code":"B73X-25-64-001-CTC-ARA","name":"IDENTIFY AND COMPLETE THE EEL IN THE PASSENGER CABIN","estMin":120},{"code":"B73X-27-102-00-01","name":"HORIZONTAL STABILIZER TRIM ACTUATOR LUBRICATION","estMin":60},{"code":"B73X-27-220-01-01","name":"LEFT WING LEADING EDGE SLAT ROLLER LUBRICATION","estMin":480},{"code":"B73X-24-040-02-01","name":"RIGHT IDG CHARGE AND SCAVENGE FILTERS","estMin":60},{"code":"B73X-24-010-02-01","name":"RIGHT IDG OIL CHANGE","estMin":30},{"code":"DIS","name":"MEGAPHONE","estMin":30},{"code":"B73X-25-340-00-01","name":"POWER MEGAPHONE BATTERIES","estMin":18},{"code":"B73X-75-010-01-01","name":"SCHEDULED MAINTENANCE TASK DISPLAY SYSTEM MAINT CTRL PGS 75-010","estMin":6},{"code":"B73X-73-060-01-01","name":"MAINTENANCE MESSAGES ON THE MULTI-FUNCTION DISPLAY 73-060","estMin":6},{"code":"B73X-29-050-01-01","name":"A HYDRAULIC SYSTEM ENGINE DRIVEN PUMP CASE DRAIN FILTER","estMin":90},{"code":"B73X-29-050-02-01","name":"B HYDRAULIC SYSTEM ENGINE DRIVEN PUMP CASE DRAIN FILTER","estMin":90},{"code":"RAD.121.702","name":"RAD 121.702 CUMPLIANCE VERIFICATION","estMin":60},{"code":"B73X-57-30-DBC-02","name":"INSPECTION SPEED TAPE RH WINGLET UPPER BLADE MDDR 980","estMin":30},{"code":"B73X-57-30-DBC-05","name":"INSPECTION SPEED TAPE LH WINGLET LOWER BLADE MDDR 985","estMin":30},{"code":"B73X-24-320-00-01","name":"MAIN LANDING GEAR WHEEL WELL ELECTRICAL CONNECTORS","estMin":180},{"code":"B73X-52-010-00-01","name":"FORWARD ENTRY DOOR LUBRICATION","estMin":90},{"code":"B73X-25-400-00-01","name":"SMOKE HOODS PROTECTIVE BREATHING EQUIPMENT","estMin":60},{"code":"B73X-27-222-01-01","name":"LEFT WING LEADING EDGE SLAT TRACKS","estMin":480},{"code":"B73X-46-13-026-ARA","name":"AIRPLANE KEYS INSTALLATION HI1078","estMin":30},{"code":"B73X-27-026-01-01","name":"LEFT WING AILERON MECHANICAL CONTROL PATH AND AILERON POWER CONTROL UNITS LUBRICATION","estMin":120},{"code":"B73X-27-136-01-01","name":"LEFT WING FLAP SKEW SENSOR MECHANISM LUBRICATION","estMin":180},{"code":"B73X-72-410-01-01","name":"LEFT ENGINE BEARING DAMPERS","estMin":120},{"code":"B73X-72-410-02-01","name":"RIGHT ENGINE BEARING DAMPERS","estMin":120},{"code":"B73X-72-420-02-01","name":"RIGHT ENGINE AGB LINKS","estMin":90},{"code":"B73X-49-140-01-01","name":"INTERROGATING THE MDS APU MAINTENANCE PAGES","estMin":24},{"code":"B73X-33-055-00-01","name":"EMERGENCY LIGHTS BATTERY PACK CAPACITY FUNCTIONAL CHECK","estMin":60},{"code":"B73X-25-330-00-01","name":"POWER MEGAPHONES","estMin":30},{"code":"B73X-52-120-00-01","name":"E/E ACCESS DOOR HANDLE LATCHING MECHANISM","estMin":60},{"code":"B73X-56-010-00-01","name":"CONTROL CABIN SLIDING WINDOWS RELEASE MECHANISMS","estMin":60},{"code":"B73X-46-13-028-ARA","name":"AIRPLANE KEYS AND UMS PARTS INSTALLATION HI1104","estMin":60},{"code":"B73X-46-13-027-ARA","name":"AIRPLANE KEYS INSTALLATION","estMin":30},{"code":"B73X-34-61-00-ARA","name":"NAV-DATABASE SOFTWARE UPDATE RAD 91.967","estMin":30},{"code":"B73X-52-010-00-03","name":"AFT ENTRY DOOR LUBRICATION","estMin":90},{"code":"B73X-25-370-00-01","name":"DETACHABLE EMERGENCY EQUIPMENT","estMin":30},{"code":"B73X-52-010-00-04","name":"AFT SERVICE DOOR LUBRICATION","estMin":90},{"code":"B73X-52-010-00-02","name":"FORWARD SERVICE DOOR LUBRICATION","estMin":90},{"code":"B73X-28-145-00-01","name":"ENGINE CROSS-FEED VALVE","estMin":60},{"code":"B73X-26-400-00-01","name":"CARGO FIRE EXTINGUISHING TIMER","estMin":480},{"code":"GVI","name":"EXTINGUISHER ASSY","estMin":30},{"code":"24-CMR-01","name":"INSPECT DETAILED LINE REPLACEABLE UNIT ELECTRICAL CONNECTOR CONTACTS AND BACKSHELLS IN THE MLG WHEEL WELL FOR CORROSION","estMin":30},{"code":"B73X-53-866-00-01","name":"PASSENGER COMPARTMENT AFT OF CONTROL COMPARTMENT TO FORWARD ENTRY DOOR","estMin":60},{"code":"B73X-53-876-00-01","name":"FORWARD PASSENGER COMPARTMENT STA 360 TO STA 663.75","estMin":60},{"code":"B73X-53-860-00-01","name":"FLIGHT CONTROL COMPARTMENT","estMin":60},{"code":"B73X-27-216-00-01","name":"AUTOSLAT SYSTEM","estMin":120},{"code":"B73X-25-100-00-01","name":"ATTENDANT SEAT HARNESS INERTIA REEL LOCK","estMin":30},{"code":"B73X-52-020-00-02","name":"FORWARD SERVICE DOOR LUBRICATION 2","estMin":60},{"code":"B73X-52-020-00-01","name":"FORWARD ENTRY DOOR LUBRICATION 2","estMin":60},{"code":"B73X-52-020-00-04","name":"AFT SERVICE DOOR LUBRICATION 2","estMin":60},{"code":"DBC-HI1078-3","name":"PAINT RESTORED AND EROSION TAPE REPAIRED","estMin":0},{"code":"B73X-79-00-001-ARA","name":"CNR-20251024047 CUMULATIVE ODMS CHIP COUNT INCREASE LOW THRESHOLD HI1082","estMin":240},{"code":"B73X-27-138-00-02","name":"RIGHT WING FLAP DRIVE TORQUE TUBES","estMin":120},{"code":"B73X-27-138-00-01","name":"LEFT WING FLAP DRIVE TORQUE TUBES","estMin":120},{"code":"B73X-53-884-00-01","name":"AFT PASSENGER COMPARTMENT STA 663.75 TO AFT PRESSURE BULKHEAD","estMin":60},{"code":"DD1804","name":"DD1804 WINDOW LT 9ABC WITH BURNED LED SEGMENTS","estMin":60},{"code":"B73X-25-160-00-02","name":"AFT CARGO COMPARTMENT PANELS LINERS","estMin":30},{"code":"B73X-25-160-00-01","name":"FORWARD CARGO COMPARTMENT PANELS LINERS","estMin":30},{"code":"B73X-23-100-00-03","name":"EMERGENCY LOCATOR TRANSMITTER AUTOMATIC FIXED TYPE","estMin":60},{"code":"52-CMR-01","name":"FUNCTIONAL CHECK OF THE LOCKING AND UNLOCKING LATCH BOLT MECHANISM ON THE FLIGHT","estMin":30},{"code":"B73X-25-090-00-01","name":"ATTENDANT SEAT HARNESS AND ATTACHMENTS","estMin":30},{"code":"B73X-27-026-02-01","name":"RIGHT WING AILERON MECHANICAL CONTROL PATH LUBRICATION","estMin":120},{"code":"DD1796","name":"DD1796 WINDOW HEAT OVERHEAT LIGHT ON RIGHT HAND SIDE F/O FRM 30463242","estMin":60},{"code":"B73X-24-120-00-01","name":"RESTORE THE MAIN AND AUXILIARY BATTERIES","estMin":60},{"code":"B73X-22-011-00-01","name":"BITE CHECK OF THE MCAS DISCRETE","estMin":30},{"code":"B73X-22-020-00-01","name":"BITE CHECK OF THE DIGITAL FLIGHT CONTROL SYSTEM DFCS SPEED TRIM STAB TRIM DISCRETE","estMin":30},{"code":"B73X-27-144-00-01","name":"LEFT WING FLAP BALLSCREW ASSEMBLIES AND TRANSMISSION UNIVERSAL JOINTS","estMin":90},{"code":"B73X-33-060-00-01","name":"EMERGENCY LIGHTS BATTERY PACK RESTORATION","estMin":30},{"code":"B73X-23-100-00-01","name":"EMERGENCY LOCATOR TRANSMITTER AUTOMATIC FIXED TYPE 01","estMin":60},{"code":"B73X-38-100-00-01","name":"WASTE TANK WATER SEPARATOR FILTER BASKETS","estMin":120},{"code":"B73X-29-230-00-01","name":"STANDBY RUDDER SYSTEM","estMin":60},{"code":"DD 1837","name":"APU INOP","estMin":180},{"code":"DD 1764","name":"SELCAL INOP","estMin":60},{"code":"B73X-27-136-02-01","name":"RIGHT WING FLAP SKEW SENSOR MECHANISM LUBRICATION","estMin":180},{"code":"B73X-32-080-00-01","name":"NOSE LANDING GEAR LUBRICATION","estMin":180},{"code":"B73X-52-020-00-03","name":"AFT ENTRY DOOR LUBRICATION 3","estMin":120},{"code":"B73X-26-018-00-01","name":"DUCT LEAK OVERHEAT DETECTION","estMin":60},{"code":"B73X-30-020-00-01","name":"ENGINE ANTI-ICE INHIBIT","estMin":60},{"code":"B73X-24-060-01-01","name":"LEFT ENGINE IDG SURFACE AIR COOLED OIL COOLERS","estMin":30},{"code":"B73X-25-040-00-01","name":"INSPECT PASSENGER SEAT BELTS","estMin":60},{"code":"B73X-27-182-02-01","name":"RIGHT WING SPOILER SPEEDBRAKE POWER CONTROL UNITS","estMin":60},{"code":"B73X-27-011-00-01","name":"FORWARD AILERON MECHANICAL COMPONENTS","estMin":90},{"code":"B73X-21-030-00-01","name":"ALTERNATE E/E COOLING EXHAUST FAN","estMin":30},{"code":"B73X-21-020-00-01","name":"ALTERNATE E/E COOLING SUPPLY FAN","estMin":30},{"code":"B73X-52-130-00-01","name":"E/E ACCESS DOOR PRESSURE SEAL","estMin":30},{"code":"B73X-28-010-00-01","name":"MAIN AND CENTER FUEL TANKS LOWER SURFACE EXTERNAL","estMin":90},{"code":"B73X-32-240-00-01","name":"LANDING GEAR TRANSFER VALVE","estMin":90},{"code":"B737-34-51-00-710-801","name":"VOR SYSTEM OPERATIONAL TEST","estMin":30},{"code":"B73X-26-010-00-01","name":"LAVATORY SMOKE DETECTORS","estMin":30},{"code":"B73X-34-110-00-03","name":"AIR TRAFFIC CONTROL SYSTEM","estMin":60},{"code":"B737-71-00-910-ARA","name":"PERFORM DRY MOTORING ENGINE 2 LOOKING FOR HYD PUMP LEAKING","estMin":90},{"code":"B73X-29-070-00-01","name":"HYDRAULIC RESERVOIR PRESSURIZATION MODULE FILTER LEFT","estMin":0},{"code":"B73X-27-182-01-01","name":"LEFT WING SPOILER SPEEDBRAKE POWER CONTROL UNITS","estMin":0},{"code":"DD 1858","name":"IN REF LEFT PACK LIGHT COMES ON DURING FLIGHT RAM AIR DOOR","estMin":300},{"code":"DD1846","name":"DD1846 FUEL TEMPERATURE INDICATOR DOES NOT OPERATE CORRECTLY","estMin":60},{"code":"B73X-29-040-00-01","name":"HYDRAULIC SYSTEM A PRESSURE FILTER ELEMENTS EDP PUMPS","estMin":90},{"code":"B73X-29-040-00-02","name":"HYDRAULIC SYSTEM B PRESSURE FILTER ELEMENTS EDP PUMPS","estMin":90},{"code":"B73X-29-070-00-02","name":"HYDRAULIC RESERVOIR PRESSURIZATION MODULE FILTER RIGHT","estMin":90},{"code":"B73X-32-430-00-01","name":"TAIL SKID CRUSHABLE CARTRIDGE INSPECTION","estMin":30},{"code":"DD1858","name":"DD1858 IN REF LEFT PACK LIGHT COMES ON DURING FLIGHT RAM AIR DOOR","estMin":240},{"code":"NRTC-00002","name":"ESN 602188 EEC CONFIGURATION SYSTEM","estMin":15},{"code":"DD1851","name":"DD8151 DURING PERFORM SCHEDULED WO615929 TASK B73X-LCL WEECKLY MAX ARA WAS FOUND BRAKE 2 LESS THAN 1.0MM","estMin":120},{"code":"B73X-35-160-00-01","name":"PULSE STYLE PORTABLE OXYGEN CYLINDERS OPERATIONALLY CHECK PULSE STYLE PORTABLE OXYGEN SYSTEM BATTERIES","estMin":30},{"code":"B73X-46-13-029-ARA","name":"NFS BARS SOFTWARE INSTALLATION","estMin":30},{"code":"B73X-57-30-002-ARA","name":"WINGLET EROTION TAPE DAMAGE MEASUREMENT","estMin":60},{"code":"B73X-27-099-00-01","name":"LEFT ELEVATOR BALANCE TAB FREEPLAY CHECK","estMin":120},{"code":"B73X-27-099-00-02","name":"RIGHT ELEVATOR BALANCE TAB FREEPLAY CHECK","estMin":120},{"code":"B73X-27-093-00-01","name":"LEFT ELEVATOR TAB AND TAB MECHANISM INSPECTION","estMin":120},{"code":"B73X-27-093-00-02","name":"RIGHT ELEVATOR TAB AND TAB MECHANISM INSPECTION","estMin":120},{"code":"B73X-23-27-001-ARA","name":"ACMS MISSING DATA TROUBLESHOOTING","estMin":30},{"code":"B73X-2025-16-09","name":"TASK B73X-2025-16-09","estMin":18},{"code":"B73X-25-355-00-01","name":"EMERGENCY LOCATOR TRANSMITTER SURVIVAL PORTABLE TYPE","estMin":60},{"code":"DD1890","name":"LIGHT RUNWAY TURN OFF RIGHT DOES NOT OPERATE","estMin":60},{"code":"DD1899","name":"AFT FLIGHT ATTENDANT HANDSET INOP DUE TO INTERFERENCE PROBLEMS","estMin":60},{"code":"DD1764","name":"DD1764 SELCAL INOP","estMin":120},{"code":"DD1891","name":"ENG 2 VIB IND INOP NO REAL VIBRATION","estMin":90},{"code":"B73X-31-140-00-01","name":"DIGITAL FLIGHT DATA RECORDER UNDERWATER LOCATOR BEACON ULB","estMin":60},{"code":"SWAP","name":"REMOVE OXY CYLINDER","estMin":60},{"code":"DD1915","name":"DD1915 DME 2","estMin":60},{"code":"DD1893","name":"DD1893 WHCU","estMin":60},{"code":"B73X-23-71-00-970-802","name":"MAKE A COPY OF THE CVR DATA WITH THE EHHDLU 802","estMin":18},{"code":"DD1702","name":"DD1702 ADMINISTRATIVE CLOSURE","estMin":0},{"code":"DD1918","name":"DD1918 ADMINISTRATIVE CLOSURE","estMin":0},{"code":"DD1917","name":"DD1917 PA INOP","estMin":480},{"code":"B73X-57-924-02-01","name":"INBOARD FLAPS RIGHT WING","estMin":60},{"code":"B73X-57-854-01-01","name":"INBOARD FLAPS LEFT WING","estMin":60},{"code":"DBC-HI1081-3","name":"DVI OF HST INSTALLED","estMin":60},{"code":"B73X-27-034-01-01","name":"LEFT WING AILERON BALANCE BAY SEALS","estMin":90},{"code":"B73X-27-033-00-01","name":"LEFT WING AILERON TAB FREEPLAY INSPECTION","estMin":60},{"code":"DD 1902","name":"WEAR INDICATOR PIN BRAKE NO 4 IN 0.55MM","estMin":60},{"code":"DD 1818","name":"FWD BEVERAGE MAKER WITH WATER LEAKING","estMin":30},{"code":"DD1927","name":"AFT RH FLIGHT ATTENDANT HANDSET CRADLE HOUSING DISBONDED","estMin":30},{"code":"DD 1897","name":"PAX SEAT 32A RECLINE SYS INOP UPRIGHT POSITION","estMin":60},{"code":"DD 1924","name":"APU DETECTION LIGHT INOP","estMin":90},{"code":"B73X-46-13-030-ARA","name":"TROUBLESHOOTING CONEXION CELULAR PARA TRANSMISION AUTOMATICA","estMin":60},{"code":"SWAP OF REU","name":"SWAP OF REU WITH HI1133","estMin":60},{"code":"DD 1917","name":"PA INOP","estMin":60},{"code":"B73X-55-830-01-01","name":"HORIZONTAL STABILIZER REAR SPAR TO TRAILING EDGE LEFT","estMin":120},{"code":"B73X-55-828-01-01","name":"HORIZONTAL STABILIZER REAR SPAR TO TRAILING EDGE LEFT 828","estMin":120},{"code":"DD1822","name":"DD1822 IN REFERENCE OF MFL 00003365 REPLACEMENT OF TAT PROBE WAS PERFORMED APLICATION OF SEALANT IS REQUIRED","estMin":30},{"code":"DD1911","name":"DD1911 LIGHT FLIGHT KIT READING DOES NOT OPERATIVE PROPERLY","estMin":30},{"code":"DD1931","name":"DD1931 LAV V SINK CLOGGED","estMin":120},{"code":"AOG EVENT","name":"REMOTE ELECTRONIC UNIT REPLACEMENT","estMin":60},{"code":"DD1901","name":"DD1901 FUEL TANK INDICATOR TEMPERATURE ON OVERHEAD PANEL WORKING INTERMITTENTLY","estMin":300},{"code":"FNC","name":"RECORDER ASSY","estMin":30},{"code":"DD1923","name":"DD1923 F/O ACP VHF1 MIC SELECTOR LIGHT INOP","estMin":60},{"code":"B73X-35-050-00-01","name":"FLIGHT CREW OXYGEN CYLINDER PRESSURE INDICATOR","estMin":30},{"code":"CNR-20251119019","name":"PRESSURE SENSING SYSTEM PSS FREEZING","estMin":90},{"code":"DD1766","name":"DD1766 DURING INSPECTION TASK CARD B73X-57-872-02-01 WAS FOUND AT THE RH WING LANDING EDGE FLAP 2 A BONDING STRAP BROKEN","estMin":60},{"code":"DD1794","name":"DD1794 LAV U TOILET LID ASSY IS BROKEN","estMin":120},{"code":"B73X-31-00-ARA","name":"FAULT ISOLATION DUE TO ENGINEERING","estMin":180},{"code":"DD1950","name":"DD1950 FUEL TEMPERATURE INDICATOR DOES NOT OPERATE CORRECTLY","estMin":270},{"code":"DD422","name":"DD422 ADMINISTRATIVE CLOSURE","estMin":9},{"code":"DD1522","name":"DD1522 ADMINISTRATIVE CLOSURE","estMin":9},{"code":"DD1946","name":"DD1946 APU FAULT LIGHT EVENT OCURRED","estMin":60},{"code":"DD1311","name":"DD1311 ADMINISTRATIVE CLOSURE","estMin":9},{"code":"DD1735","name":"DD1735 ADMINISTRATIVE CLOSURE","estMin":9},{"code":"DD1736","name":"DD1736 ADMINISTRATIVE CLOSURE","estMin":9},{"code":"DD1973","name":"PERFORM FAULT ISOLATION DUE TO APU INOP DUE APU FAULT LT ON","estMin":90},{"code":"B73X-38-070-00-01","name":"DISINFECT POTABLE WATER SYSTEM","estMin":0},{"code":"B73X-23-31-001-ARA","name":"NEW CONTENT PRAM INSTALATION","estMin":18},{"code":"DD1969","name":"DD1969 OVERHEAD BIN 2-3 DEF INOP","estMin":120},{"code":"DD1971","name":"DD1971 UPPER RED ANTI-COLLISION DOES NOT COME ON","estMin":120},{"code":"DD1855","name":"DD1855 NEED TO APPLY SELANT AROUND THE BASE OF VHF 2","estMin":60},{"code":"B73X-27-034-02-01","name":"RIGHT WING AILERON BALANCE BAY SEALS","estMin":90},{"code":"B73X-27-033-00-02","name":"RIGHT WING AILERON TAB FREEPLAY INSPECTION","estMin":60},{"code":"B73X-27-075-02-01","name":"RIGHT ELEVATOR BALANCE WEIGHT INSTALLATION AND TAB CONTROL MECHANISM","estMin":90},{"code":"CNR-20251201018","name":"PRESSURE SENSING SYSTEM PSS FREEZING 1201018","estMin":90},{"code":"DD 1981","name":"DURING TRANSIT CHECK LIST WAS FOUND TIRE MAIN LDG TIRE 2 FIRST PLIES VISIBLE","estMin":60},{"code":"B73X-32-45-00-803-ARA","name":"LANDING GEAR TIRE INSPECTION NLG AND MLG","estMin":30},{"code":"B73X-32-41-41-801-ARA","name":"EXAMINE THE MAIN LANDING GEAR BRAKES FOR WEAR POSITION 1 2 3 AND 4","estMin":30},{"code":"DD1970","name":"DD1970 NGS DEGRADED BLUE LT ON","estMin":60},{"code":"DD1999","name":"DD1999 WING ANTI ICE LEFT VALVE LIGHT ON","estMin":180},{"code":"B73X-25-010-02-01","name":"FIRST OFFICER SEAT TRACKS AND LOCKING MECHANISM","estMin":60},{"code":"CNR-20251114004","name":"EEC VIBRATION ANALYSIS HEALTH MODULE VAHM FAULT CH B","estMin":120},{"code":"CNR-20251205074","name":"PRESSURE SYSTEM FREEZING 1205074","estMin":90},{"code":"DD1978","name":"DD1978 FIRST OBSERVER FLIGHT KIT READING LIGHT DOES NOT OPERATE CORRECTLY","estMin":60},{"code":"DD 2000","name":"LAVATORY AFT LH NO FLUSH","estMin":30},{"code":"DD 1925","name":"OVEN NOT WORKING FWD GALLEY","estMin":30},{"code":"DD 1888","name":"DURING INSPECTION FOUND ON THE CORNER BACK SEAT BROKEN SEAT 21C","estMin":30},{"code":"DD 1987","name":"OVERHEAD BIN 31 DEF INOP","estMin":30},{"code":"DD 1991","name":"RH SIDE WINDOW ELECTRICAL HEATING SYSTEM INOP DUE WINDOW HEAT OVERHEAT LT ON","estMin":60},{"code":"DD 2003","name":"WINDOW LIGHT LEFT SIDE ROW 6 CBA DOES NOT OPERATE CORRECTLY","estMin":30},{"code":"DD 1885","name":"LAV U FLUSH SWITCH INTEGRAL LIGHT INOP","estMin":30},{"code":"DD 1823","name":"DURING GVI PAX-CABIN FOUND SEAT POCKET DETERIORATED 7F 10F 11ABC 12F 14F","estMin":30},{"code":"DD 1831","name":"DURING GVI PAX CABIN FOUND TRACK COVER MISSING ON SEAT 14 23F","estMin":30},{"code":"DD 1843","name":"IN REF TO WO 615913 DURING DVI TO LAV A FWD WAS FOUND MIRROR WITH FUNGUS","estMin":30},{"code":"DD 1844","name":"IN REF TO WO 615913 DURING DVI TO LAV D AFT WAS FOUND MIRROR WITH FUNGUS","estMin":30},{"code":"CNR-20251119016","name":"PRESSURE SENSING SYSTEM PSS FREEZING 1119016","estMin":0},{"code":"DD 1987B","name":"OVERHEAD BIN 31 DEF INOP B","estMin":180},{"code":"DD 2005","name":"DURING WEEKLY CHECK LIST WAS FOUND PIN LENGTH IN MAIN LANDING GEAR INSUFFICIENT 1 BRAKE WITH 0.48 MM","estMin":60},{"code":"DD 1998","name":"DURING ACCOMPLISH WEEKLY CHECK WAS FOUND BRAKE 1 WITH 0.81 MM","estMin":60},{"code":"DD2016","name":"DD2016 MLG TIRE 2 GROOVE DEPTH 1.31 MM","estMin":60},{"code":"DD2006","name":"DD2006 APU FAULT LIGHT ON AFTER LANDING","estMin":120},{"code":"B73X-72-211-007-4-CTC-ARA","name":"MISSING MATERIAL HEAT SHIELD AFT SURFACE FUEL NOZZLE","estMin":720},{"code":"DD 2028","name":"FOUND WINDOW LIGHT LEFT SIDE ROW 16 TO 22 SEAT NOT ILLUMINATE","estMin":120},{"code":"DD 1643","name":"FWD FLIGHT ATTENDANT SEAT TORN","estMin":30},{"code":"DD 1706","name":"PASSENGER SEAT 2F TRAY TABLE DAMAGE","estMin":60},{"code":"DD 2017","name":"LOWER RED ANTICOLLISION LIGHT INOP","estMin":30},{"code":"DD 1921","name":"LAV E TRASH DOOR WITH LOWER LATCH DAMAGED","estMin":30},{"code":"DD 1845","name":"SINK FORWARD LAVATORY OVERFLOWS DRAIN PLUG MISSING","estMin":15},{"code":"B73X-46-13-031-ARA","name":"DUE TO ACTIVE FAILURE OF NFS SOM MODULE NFS REPLACEMENT IS REQUIRED","estMin":240},{"code":"DD 2026","name":"AUTOPILOT 2 INOPERATIVE DOES NOT ENGAGE","estMin":300},{"code":"DD 2029","name":"DURING PRE-FLIGHT TEST FOUND AFT CARGO LOOP DETECTION SYSTEM A INOPERATIVE","estMin":60},{"code":"DD 1993","name":"LAV U DOOR INSIDE GRILLE BEZEL MISSING","estMin":30},{"code":"DD 1809","name":"CAPT AND FO SEAT BACKREST CUSHION COVERS ARE DETERIORATED","estMin":30},{"code":"DD 1810","name":"SECOND OBSERVER SEAT PAN CUSHION COVER AND BACKREST CUSHION COVER ARE DETERIORATED","estMin":30},{"code":"DD 1889","name":"READING LIGHT BETWEEN ROW 6 AND 7 ABC STEADY BLINKING","estMin":60}];
+const TASK_CATALOG_DEFAULT = []; // Vacío — importa tu catálogo desde Excel en la pestaña Catálogo
 
 // ══ CATÁLOGO DE TAREAS ══
 let taskCatalog = [];
@@ -2688,22 +3189,10 @@ async function loadTaskCatalog(){
   if(!window.FB) return;
   try{
     const snap = await FB.db.collection(AIRLINE_ID).doc('config').collection('taskCatalog').get();
-    if(snap.docs.length > 0){
-      taskCatalog = snap.docs.map(d=>({id:d.id,...d.data()}));
-    } else {
-      // Seed Firestore with default catalog
-      const batch = FB.db.batch();
-      TASK_CATALOG_DEFAULT.forEach(t=>{
-        const ref = FB.db.collection(AIRLINE_ID).doc('config').collection('taskCatalog').doc();
-        batch.set(ref,{code:t.code,name:t.name,createdAt:Date.now()});
-      });
-      await batch.commit();
-      taskCatalog = TASK_CATALOG_DEFAULT.map((t,i)=>({id:'default_'+i,...t}));
-      toast('Catalogo de '+TASK_CATALOG_DEFAULT.length+' tareas cargado');
-    }
+    taskCatalog = snap.docs.map(d=>({id:d.id,...d.data()}));
     taskCatalog.sort((a,b)=>a.code.localeCompare(b.code));
     buildCatalogDatalist();
-  }catch(e){ taskCatalog=[...TASK_CATALOG_DEFAULT]; console.warn('loadTaskCatalog:',e); }
+  }catch(e){ taskCatalog=[]; console.warn('loadTaskCatalog:',e); }
 }
 
 function buildCatalogDatalist(){
@@ -2811,6 +3300,134 @@ async function deleteCatalogTask(id,code){
   buildCatalogDatalist();
   renderTaskCatalog();
   toast('Eliminada: '+code);
+}
+
+// ── Importar catálogo desde Excel ────────────────────────────────
+let _catalogImportRows = [];
+
+function importCatalogExcel(input){
+  const file = input.files[0];
+  if(!file){ return; }
+  input.value = ''; // reset so same file can be re-selected
+
+  const reader = new FileReader();
+  reader.onload = function(e){
+    try{
+      const wb = XLSX.read(e.target.result, {type:'binary'});
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const raw = XLSX.utils.sheet_to_json(ws, {defval:''});
+
+      if(!raw.length){ toast('El archivo está vacío',true); return; }
+
+      // Normalise headers: strip accents, spaces, uppercase
+      function norm(s){ return String(s).normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/\s+/g,'_').toUpperCase(); }
+
+      const firstRow = raw[0];
+      const headers = Object.keys(firstRow);
+      // Find column mappings (flexible naming)
+      function findCol(keys, candidates){
+        for(const c of candidates){
+          const found = keys.find(k=>norm(k)===c);
+          if(found) return found;
+        }
+        return null;
+      }
+      const colCode = findCol(headers,['CODIGO','CODE','TASK_CODE','TASK','CODIGO_DE_TAREA','TASK_NUMBER']);
+      const colName = findCol(headers,['NOMBRE','NAME','DESCRIPTION','DESCRIPCION','TASK_NAME','TASK_DESCRIPTION']);
+      const colTime = findCol(headers,['TIEMPO_HORAS','HORAS','HOURS','TIME_HRS','MAN_HOURS','MANHOURS','TIEMPO','HRS','ESTIMATED_HOURS','EST_HOURS']);
+
+      if(!colCode || !colName){
+        toast('No se encontraron columnas CODIGO y NOMBRE. Verifica el encabezado del Excel.',true);
+        return;
+      }
+
+      const rows = [];
+      const skipped = [];
+      raw.forEach((r,i)=>{
+        const code = String(r[colCode]||'').trim().toUpperCase();
+        const name = String(r[colName]||'').trim().toUpperCase();
+        const rawTime = colTime ? String(r[colTime]||'').trim() : '';
+        const hours = parseFloat(rawTime.replace(',','.')) || 0;
+        const estMin = Math.round(hours * 60);
+        if(!code || !name){ skipped.push(i+2); return; }
+        rows.push({code, name, estMin});
+      });
+
+      if(!rows.length){ toast('No se encontraron filas válidas con CODIGO y NOMBRE',true); return; }
+
+      _catalogImportRows = rows;
+
+      // Count duplicates
+      const dupes = rows.filter(r=>taskCatalog.find(t=>t.code===r.code));
+
+      // Build preview table
+      const tbl = document.getElementById('catalog-import-table');
+      tbl.innerHTML = `
+        <div style="display:grid;grid-template-columns:200px 1fr 70px 60px;gap:0;font-weight:700;color:#1e40af;background:#dbeafe;padding:6px 10px;border-radius:6px 6px 0 0;position:sticky;top:0">
+          <span>CÓDIGO</span><span>NOMBRE</span><span style="text-align:center">TIEMPO</span><span style="text-align:center">ESTADO</span>
+        </div>
+      `;
+      rows.forEach(r=>{
+        const isDupe = !!taskCatalog.find(t=>t.code===r.code);
+        const timeStr = r.estMin>0 ? Math.floor(r.estMin/60)+'h'+(r.estMin%60?(r.estMin%60)+'m':'') : '—';
+        const row = document.createElement('div');
+        row.style.cssText='display:grid;grid-template-columns:200px 1fr 70px 60px;gap:0;padding:5px 10px;border-bottom:1px solid #dbeafe;'+(isDupe?'background:#fef9c3':'');
+        row.innerHTML=`
+          <span style="font-family:monospace;font-size:10px;font-weight:700;color:#0f2a66;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.code}">${r.code}</span>
+          <span style="font-size:10px;color:#374151;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 6px" title="${r.name}">${r.name}</span>
+          <span style="font-size:10px;text-align:center;color:#0f2a66;font-weight:600">${timeStr}</span>
+          <span style="font-size:10px;text-align:center;color:${isDupe?'#b45309':'#166534'}">${isDupe?'⚠ Dup':'✓ Nuevo'}</span>
+        `;
+        tbl.appendChild(row);
+      });
+
+      const cntEl = document.getElementById('catalog-import-count');
+      cntEl.textContent = rows.length+' tareas encontradas'+(dupes.length?' ('+dupes.length+' ya existen y se omitirán)':'');
+
+      const warnEl = document.getElementById('catalog-import-warn');
+      warnEl.textContent = skipped.length ? '⚠ Filas sin código/nombre omitidas: fila(s) '+skipped.join(', ') : '';
+
+      document.getElementById('catalog-import-preview').style.display='block';
+
+    }catch(err){
+      console.error('importCatalogExcel:', err);
+      toast('Error al leer el Excel: '+err.message, true);
+    }
+  };
+  reader.readAsBinaryString(file);
+}
+
+async function confirmCatalogImport(){
+  if(!_catalogImportRows.length) return;
+  const newRows = _catalogImportRows.filter(r=>!taskCatalog.find(t=>t.code===r.code));
+  if(!newRows.length){ toast('Todas las tareas ya existen en el catálogo'); return; }
+
+  const btn = document.querySelector('#catalog-import-preview .btn-green');
+  if(btn){ btn.disabled=true; btn.textContent='Importando…'; }
+
+  try{
+    // Firestore batch (max 500 per batch)
+    const CHUNK = 400;
+    for(let i=0;i<newRows.length;i+=CHUNK){
+      const batch = FB.db.batch();
+      newRows.slice(i,i+CHUNK).forEach(r=>{
+        const ref = FB.db.collection(AIRLINE_ID).doc('config').collection('taskCatalog').doc();
+        batch.set(ref,{code:r.code,name:r.name,estMin:r.estMin||0,createdAt:Date.now(),createdBy:currentUserName});
+        taskCatalog.push({id:ref.id,...r});
+      });
+      await batch.commit();
+    }
+    taskCatalog.sort((a,b)=>a.code.localeCompare(b.code));
+    buildCatalogDatalist();
+    renderTaskCatalog();
+    document.getElementById('catalog-import-preview').style.display='none';
+    _catalogImportRows=[];
+    toast('✅ '+newRows.length+' tareas importadas al catálogo');
+  }catch(err){
+    console.error('confirmCatalogImport:',err);
+    toast('Error al guardar: '+err.message,true);
+    if(btn){ btn.disabled=false; btn.textContent='✅ Importar todo'; }
+  }
 }
 
 // ══ PLANIFICACIÓN ══
@@ -3073,10 +3690,10 @@ async function submitPlan(){
   let status='pending';
   if(doneById&&doneTime) status='done';
   else if(unassignReason) status='unassigned';
-  const data={code,name,ac,wo,dueDate:document.getElementById('pm-due-date').value,dueTime:document.getElementById('pm-due-time').value,estMin:estMin||60,techId,techName,priority,defOpen,defDays,defExpiry,notes:document.getElementById('pm-notes').value||'',status,doneById,doneByName,doneTime,unassignReason,updatedAt:Date.now(),updatedBy:currentUserName,station:window._station||'PUJ'};
+  const data={code,name,ac,wo,dueDate:document.getElementById('pm-due-date').value,dueTime:document.getElementById('pm-due-time').value,estMin:estMin||60,techId,techName,priority,defOpen,defDays,defExpiry,notes:document.getElementById('pm-notes').value||'',status,doneById,doneByName,doneTime,unassignReason,updatedAt:Date.now(),updatedBy:currentUserName,station:activeStation()};
   if(!FB){ toast('Sin conexion',true); return; }
   if(editingPlanId){
-    await FB.db.collection(AIRLINE_ID).doc(window._station||'PUJ').collection('plans').doc(editingPlanId).update(data);
+    await FB.db.collection(AIRLINE_ID).doc(activeStation()).collection('plans').doc(editingPlanId).update(data);
     toast('Tarea actualizada: '+code);
   } else {
     data.createdAt=Date.now(); data.createdBy=currentUserName;
@@ -3088,7 +3705,7 @@ async function submitPlan(){
 
 async function deletePlan(id){
   if(!confirm('Eliminar esta tarea?')) return;
-  await FB.db.collection(AIRLINE_ID).doc(window._station||'PUJ').collection('plans').doc(id).delete();
+  await FB.db.collection(AIRLINE_ID).doc(activeStation()).collection('plans').doc(id).delete();
   toast('Tarea eliminada');
 }
 
@@ -3098,7 +3715,7 @@ function renderPlan(){
   const prioFilter=document.getElementById('plan-filter-priority')?.value||'';
   const woFilter=(document.getElementById('plan-filter-wo')?.value||'').trim().toUpperCase();
   const canEdit=(currentRole==='superadmin'||currentRole==='supervisor'||currentRole==='admin');
-  const st=window._station||'PUJ';
+  const st=activeStation();
   let filtered=plans.filter(p=>!p.station||p.station===st);
 
   // WO filter: show only tasks for that WO (pending only by default)
@@ -3141,7 +3758,7 @@ function renderPlan(){
     }
   }
   if(!filtered.length){
-    el.innerHTML='<div style="text-align:center;padding:32px;color:#94a3b8;font-size:12px">Sin tareas'+(filter?' con ese filtro':'')+'.'+(canEdit?' Clic en + Nueva tarea.':'')+'</div>';
+    el.innerHTML='<div style="text-align:center;padding:32px;color:#94a3b8;font-size:12px">Sin tareas'+((prioFilter||woFilter)?' con ese filtro':'')+'.'+(canEdit?' Clic en + Nueva tarea.':'')+'</div>';
     return;
   }
   const now=new Date();
@@ -3223,7 +3840,7 @@ async function markPlanTaskDone(planId, taskCode){
   if(!FB) return;
   const doneBy=currentUserName||'—';
   const doneAt=new Date().toLocaleTimeString('es-DO',{hour:'2-digit',minute:'2-digit'});
-  await FB.db.collection(AIRLINE_ID).doc(window._station||'PUJ').collection('plans').doc(planId)
+  await FB.db.collection(AIRLINE_ID).doc(activeStation()).collection('plans').doc(planId)
     .update({status:'done',doneByName:doneBy,doneTime:doneAt,updatedAt:Date.now()});
   playSound('delivered');
   toast('Tarea '+taskCode+' completada por '+doneBy);
@@ -3233,7 +3850,7 @@ async function markPlanTaskUnassigned(planId, taskCode){
   if(!FB) return;
   const reason=prompt('Motivo de no realizacion de la tarea: '+taskCode);
   if(!reason||!reason.trim()) return;
-  await FB.db.collection(AIRLINE_ID).doc(window._station||'PUJ').collection('plans').doc(planId)
+  await FB.db.collection(AIRLINE_ID).doc(activeStation()).collection('plans').doc(planId)
     .update({status:'unassigned',unassignReason:reason.trim(),unassignedBy:currentUserName,updatedAt:Date.now()});
   toast('Tarea '+taskCode+' marcada como no realizada');
 }
@@ -3245,9 +3862,9 @@ async function markTaskDone(taskId,taskIdx,taskCode){
   const doneAt=new Date().toLocaleTimeString('es-DO',{hour:'2-digit',minute:'2-digit'});
   const updated=[...(t.linkedTasks||[])];
   updated[taskIdx]={...updated[taskIdx],doneBy,doneAt,doneAt_full:Date.now()};
-  await FB.db.collection(AIRLINE_ID).doc(window._station||'PUJ').collection('tasks').doc(taskId).update({linkedTasks:updated});
+  await FB.db.collection(AIRLINE_ID).doc(activeStation()).collection('tasks').doc(taskId).update({linkedTasks:updated});
   const linked=plans.find(p=>p.code===taskCode&&p.ac===t.ac&&(p.wo||'').toUpperCase()===(t.wo||'').toUpperCase());
-  if(linked) await FB.db.collection(AIRLINE_ID).doc(window._station||'PUJ').collection('plans').doc(linked.id).update({status:'done',doneByName:doneBy,doneTime:doneAt,updatedAt:Date.now()});
+  if(linked) await FB.db.collection(AIRLINE_ID).doc(activeStation()).collection('plans').doc(linked.id).update({status:'done',doneByName:doneBy,doneTime:doneAt,updatedAt:Date.now()});
   playSound('delivered');
   toast('Tarea '+taskCode+' completada por '+doneBy);
 }
@@ -3259,9 +3876,9 @@ async function markTaskUnassigned(taskId,taskIdx,taskCode){
   const t=tasks.find(x=>x.id===taskId); if(!t) return;
   const updated=[...(t.linkedTasks||[])];
   updated[taskIdx]={...updated[taskIdx],unassignReason:reason.trim(),unassignedBy:currentUserName,unassignedAt:Date.now()};
-  await FB.db.collection(AIRLINE_ID).doc(window._station||'PUJ').collection('tasks').doc(taskId).update({linkedTasks:updated});
+  await FB.db.collection(AIRLINE_ID).doc(activeStation()).collection('tasks').doc(taskId).update({linkedTasks:updated});
   const linked=plans.find(p=>p.code===taskCode&&p.ac===t.ac&&(p.wo||'').toUpperCase()===(t.wo||'').toUpperCase());
-  if(linked) await FB.db.collection(AIRLINE_ID).doc(window._station||'PUJ').collection('plans').doc(linked.id).update({status:'unassigned',unassignReason:reason.trim(),updatedAt:Date.now()});
+  if(linked) await FB.db.collection(AIRLINE_ID).doc(activeStation()).collection('plans').doc(linked.id).update({status:'unassigned',unassignReason:reason.trim(),updatedAt:Date.now()});
   toast('Tarea '+taskCode+' marcada como no realizada');
 }
 
@@ -3339,7 +3956,7 @@ async function renderScheduleView(){
   const loading = document.getElementById('schedule-loading');
   if(!wrap) return;
   let month = document.getElementById('schedule-month')?.value;
-  const station = document.getElementById('schedule-station')?.value || 'PUJ';
+  const station = document.getElementById('schedule-station')?.value || activeStation();
   if(!month){
     const now = new Date();
     month = now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0');
@@ -3539,7 +4156,7 @@ function parseScheduleRows(rows){
 function isOnShift(techName, dateStr, startMins, endMins){
   const [y, m, d] = dateStr.split('-').map(Number);
   const monthKey = y+'-'+String(m).padStart(2,'0');
-  const station = window._station||'PUJ';
+  const station = activeStation();
   const key = monthKey+'-'+station;
   const data = scheduleData[key];
   if(!data || !data.personnel) return true; // no schedule = assume available
@@ -3727,12 +4344,16 @@ function renderMCCStations(){
       else{stBg='#f1f5f9';stClr='#64748b';stLabel='En trabajo';}
       const hasCmt=!!(t.comments&&t.comments.trim());
       const histLabel=isHistRow?`<span style="font-size:8px;color:#94a3b8;background:#f1f5f9;padding:1px 5px;border-radius:4px">${t.taskDate}</span>`:'';
+      const showCdw=!isHistorical&&!isAOG&&!isEntregada&&t.ge!=null&&t.ge>nowMins&&mccDate===todayStr;
+      const cdwId=`cdw-${t.id.replace(/\W/g,'')}`;
+      const cdwHtml=showCdw?`<span id="${cdwId}" data-cdw-ge="${t.ge}" style="font-size:9px;font-weight:700;padding:2px 7px;border-radius:10px;white-space:nowrap;cursor:default;background:#dbeafe;color:#1e40af">⏱ --:--</span>`:'';
       return `<div style="padding:7px 0;border-top:1px solid #f1f5f9${isHistRow?';opacity:.85':''}">
         <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
           <span style="font-weight:800;color:#0f2a66;min-width:56px;font-size:12px">${esc(t.ac)}</span>
           <span style="color:#94a3b8;font-size:10px">${hhmm(t.gs)}→${hhmm(t.ge)}</span>
           <span style="font-size:9px;color:#94a3b8">${esc(t.wo||'')}</span>
           ${histLabel}
+          ${cdwHtml}
           <span style="margin-left:auto;background:${stBg};color:${stClr};padding:2px 8px;border-radius:10px;font-weight:700;font-size:10px;white-space:nowrap">${stLabel}</span>
         </div>
         ${hasCmt?`<div style="margin-top:4px;padding:4px 8px;background:#fffbeb;border-radius:6px;border-left:2px solid #f59e0b;font-size:10px;color:#92400e;line-height:1.4">💬 ${esc(t.comments)}</div>`:''}
@@ -3845,6 +4466,35 @@ async function resolveMCCMsg(id,st){
   await FB.db.collection(AIRLINE_ID).doc(st).collection('reports').doc(id).update({resolved:true,resolvedAt:Date.now(),resolvedBy:currentUserName});
   toast('✅ Mensaje atendido');
 }
+
+// ── MCC departure countdown tick (1 s) ──────────────────
+function mccCountdownTick(){
+  const view=document.getElementById('VIEW-mcc');
+  if(!view?.classList.contains('on')) return;
+  if(mccSelectedDate!==localDateStr()) return;
+  const now=Date.now();
+  document.querySelectorAll('[data-cdw-ge]').forEach(el=>{
+    const ge=parseInt(el.getAttribute('data-cdw-ge'),10);
+    const etd=new Date(); etd.setHours(Math.floor(ge/60),ge%60,0,0);
+    const diffMs=etd-now;
+    if(diffMs<=0){
+      el.textContent='ETD pasado';
+      el.style.background='#f1f5f9'; el.style.color='#94a3b8';
+      return;
+    }
+    const diffMins=Math.floor(diffMs/60000);
+    const diffSecs=Math.floor((diffMs%60000)/1000);
+    const h=Math.floor(diffMins/60), m=diffMins%60;
+    el.textContent=h>0
+      ?`⏱ ${h}h ${String(m).padStart(2,'0')}m`
+      :`⏱ ${String(m).padStart(2,'0')}m ${String(diffSecs).padStart(2,'0')}s`;
+    if(diffMins>60)     {el.style.background='#dbeafe';el.style.color='#1e40af';}
+    else if(diffMins>30){el.style.background='#dcfce7';el.style.color='#166534';}
+    else if(diffMins>15){el.style.background='#fef9c3';el.style.color='#92400e';}
+    else                {el.style.background='#fee2e2';el.style.color='#dc2626';}
+  });
+}
+setInterval(mccCountdownTick,1000);
 
 // ── Formulario de reporte desde MCC ──
 let mccRepPhotoFile = null;
@@ -3986,7 +4636,7 @@ async function generateDailyPDF(){
     const dt=dayTasks();
     const reps=activeReports.filter(r=>!r.resolved);
     const worked=techAssignedHours();
-    const st=window._station||'PUJ';
+    const st=activeStation();
     const nowStr=new Date().toLocaleTimeString('es-DO',{hour:'2-digit',minute:'2-digit'});
     const W=210, M=14;
     const NAVY=[15,42,102], WHITE=[255,255,255], GRAY=[100,116,132];
@@ -4287,7 +4937,7 @@ async function installApp(){
 let flightsData = [];
 
 async function loadFlights(station, date){
-  station = station || window._station || 'PUJ';
+  station = station || window._station || activeStation();
   try {
     // Load ALL flights (both arrivals and departures) - don't orderBy to avoid index issues
     const snap = await FB.db.collection(AIRLINE_ID).doc(station)
@@ -4308,11 +4958,410 @@ async function loadFlights(station, date){
   if(typeof renderGantt === 'function') renderGantt();
 }
 
+// ══ TAIL ASSIGNMENTS + API SYNC ═════════════════════════════════════════════
+
+let tailAssignments = {};      // { 'DM101': 'HP-1840CMP', ... }
+let _tailImportRows = [];
+let _flightAPIPreviewRows = [];
+
+function normFltNum(s){
+  // Normaliza "DM-101", "DM 101", "DM101" → "DM101"
+  return String(s||'').toUpperCase().replace(/[\s\-]/g,'');
+}
+
+function updateTailBadge(){
+  const el = document.getElementById('tail-count-badge');
+  const n  = Object.keys(tailAssignments).length;
+  if(el) el.textContent = n>0 ? '✓ '+n+' matrículas cargadas' : 'Sin matrículas cargadas';
+}
+
+async function loadTailAssignments(){
+  if(!window.FB) return;
+  try{
+    const snap = await FB.db.collection(AIRLINE_ID).doc('config').collection('tailAssignments').get();
+    tailAssignments = {};
+    snap.docs.forEach(d=>{ tailAssignments[normFltNum(d.id)] = d.data().registration; });
+    updateTailBadge();
+    console.log('[TailAssignments] loaded:', Object.keys(tailAssignments).length);
+  }catch(e){ console.warn('loadTailAssignments:', e); }
+}
+
+// ── Importar itinerario completo de vuelos desde Excel ───────────────────────
+let _flightsExcelRows = [];
+
+function importFlightsExcel(input){
+  const file = input.files[0]; if(!file) return;
+  input.value = '';
+  const reader = new FileReader();
+  reader.onload = function(e){
+    try{
+      const wb  = XLSX.read(e.target.result,{type:'binary'});
+      const ws  = wb.Sheets[wb.SheetNames[0]];
+      const raw = XLSX.utils.sheet_to_json(ws,{defval:''});
+      if(!raw.length){ toast('El archivo está vacío',true); return; }
+
+      function nrm(s){ return String(s).normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[\s\-]/g,'_').toUpperCase(); }
+      const hdrs   = Object.keys(raw[0]);
+      const findCol= list => hdrs.find(h=>list.includes(nrm(h)))||null;
+
+      const colNum  = findCol(['VUELO','FLIGHT','NUMERO_VUELO','FLIGHT_NUMBER','FLT','FLT_NO','FLIGHT_NO']);
+      const colOrig = findCol(['ORIGEN','ORIGIN','DEP','DEPARTURE','FROM','PROCEDENCIA']);
+      const colDest = findCol(['DESTINO','DESTINATION','ARR','ARRIVAL','TO','DESTINO_IATA']);
+      const colEta  = findCol(['ETA','LLEGADA','ARRIVAL_TIME','ARR_TIME','HORA_LLEGADA','STA']);
+      const colEtd  = findCol(['ETD','SALIDA','DEPARTURE_TIME','DEP_TIME','HORA_SALIDA','STD']);
+      const colAc   = findCol(['MATRICULA','REGISTRATION','REG','TAIL','AIRCRAFT','AC','AC_REG']);
+      const colDays = findCol(['DIAS','DAYS','DIAS_SEMANA','DOW','FREQUENCY','FRECUENCIA']);
+
+      if(!colNum){ toast('No se encontró columna VUELO — revisa los encabezados del Excel',true); return; }
+
+      // Day-name → JS day index (0=Sun … 6=Sat)
+      const DAY_MAP={'D':0,'DO':0,'DOM':0,'SU':0,'SUN':0,'DOMINGO':0,'SUNDAY':0,
+                     'L':1,'LU':1,'LUN':1,'MO':1,'MON':1,'LUNES':1,'MONDAY':1,
+                     'M':2,'MA':2,'MAR':2,'TU':2,'TUE':2,'MARTES':2,'TUESDAY':2,
+                     'X':3,'MI':3,'MIE':3,'WE':3,'WED':3,'MIERCOLES':3,'WEDNESDAY':3,
+                     'J':4,'JU':4,'JUE':4,'TH':4,'THU':4,'JUEVES':4,'THURSDAY':4,
+                     'V':5,'VI':5,'VIE':5,'FR':5,'FRI':5,'VIERNES':5,'FRIDAY':5,
+                     'S':6,'SA':6,'SAB':6,'SAT':6,'SABADO':6,'SATURDAY':6};
+
+      function parseDays(val){
+        if(!val) return [0,1,2,3,4,5,6]; // sin días = todos
+        const str=String(val).toUpperCase();
+        // Numeric: "1234567" or "1,2,3"
+        if(/^[\d,\s]+$/.test(str)) return str.split(/[,\s]+/).map(d=>parseInt(d)-1).filter(d=>d>=0&&d<=6);
+        // Named: "L,M,X,J,V" or "MON TUE WED"
+        return str.split(/[,\s\/\-]+/).map(t=>t.trim()).map(t=>DAY_MAP[t]).filter(d=>d!==undefined);
+      }
+
+      function parseTime(val){
+        if(!val&&val!==0) return '';
+        const s=String(val).trim();
+        // Excel time as decimal (0.5 = 12:00)
+        if(/^\d+\.\d+$/.test(s)){
+          const mins=Math.round(parseFloat(s)*1440);
+          return String(Math.floor(mins/60)).padStart(2,'0')+':'+String(mins%60).padStart(2,'0');
+        }
+        // HH:MM or H:MM
+        const m=s.match(/(\d{1,2}):(\d{2})/);
+        if(m) return m[1].padStart(2,'0')+':'+m[2];
+        // HHMM
+        if(/^\d{3,4}$/.test(s)){
+          const n=s.padStart(4,'0');
+          return n.slice(0,2)+':'+n.slice(2);
+        }
+        return s;
+      }
+
+      const station = window._station;
+      const rows=[]; const skipped=[];
+      raw.forEach((r,i)=>{
+        const num=(r[colNum]||'').toString().trim().toUpperCase();
+        if(!num){ skipped.push(i+2); return; }
+        const orig=(colOrig?String(r[colOrig]||'').trim().toUpperCase():'');
+        const dest=(colDest?String(r[colDest]||'').trim().toUpperCase():'');
+        const eta =parseTime(colEta?r[colEta]:'');
+        const etd =parseTime(colEtd?r[colEtd]:'');
+        const ac  =(colAc?String(r[colAc]||'').trim().toUpperCase():'')||tailAssignments[normFltNum(num)]||'';
+        const days=parseDays(colDays?r[colDays]:'');
+        // Determine type: arrival if has ETA, departure if only ETD
+        const type = eta ? 'arr' : 'dep';
+        function toMin(t){ if(!t) return 0; const [h,m]=t.split(':').map(Number); return h*60+(m||0); }
+        rows.push({number:num, origin:orig, dest, eta, etd, ac, days, type, station,
+          etaM:toMin(eta), etdM:toMin(etd)});
+      });
+
+      if(!rows.length){ toast('No se encontraron vuelos válidos con VUELO',true); return; }
+      _flightsExcelRows=rows;
+
+      // Preview table
+      const tbl=document.getElementById('flights-excel-table');
+      const cnt=document.getElementById('flights-excel-count');
+      const warn=document.getElementById('flights-excel-warn');
+      if(tbl){
+        tbl.innerHTML=`<div style="display:grid;grid-template-columns:90px 55px 100px 50px 50px 110px 80px;font-weight:700;color:#166534;background:#dcfce7;padding:6px 10px;border-radius:6px 6px 0 0;position:sticky;top:0">
+          <span>VUELO</span><span>TIPO</span><span>RUTA</span><span>ETA</span><span>ETD</span><span>MATRÍCULA</span><span>DÍAS</span></div>`;
+        const DAYNAMES=['Do','Lu','Ma','Mi','Ju','Vi','Sa'];
+        rows.forEach(r=>{
+          const row=document.createElement('div');
+          const hasTail=!!r.ac;
+          row.style.cssText='display:grid;grid-template-columns:90px 55px 100px 50px 50px 110px 80px;padding:4px 10px;border-bottom:1px solid #dcfce7;'+(hasTail?'':'background:#fef9c3');
+          const daysStr=r.days.length===7?'Todos':r.days.map(d=>DAYNAMES[d]).join(' ');
+          row.innerHTML=`
+            <span style="font-family:monospace;font-weight:700;color:#0f2a66">${r.number}</span>
+            <span style="color:${r.type==='arr'?'#166534':'#b45309'};font-weight:600">${r.type==='arr'?'▼ ARR':'▲ DEP'}</span>
+            <span style="font-size:9px;color:#374151">${r.origin}→${r.dest}</span>
+            <span style="font-family:monospace;color:#0f2a66">${r.eta||'—'}</span>
+            <span style="font-family:monospace;color:#0f2a66">${r.etd||'—'}</span>
+            <span style="font-family:monospace;font-weight:600;color:${hasTail?'#166534':'#9ca3af'}">${r.ac||'Sin matrícula'}</span>
+            <span style="font-size:9px;color:#64748b">${daysStr}</span>`;
+          tbl.appendChild(row);
+        });
+      }
+      const noTail=rows.filter(r=>!r.ac).length;
+      if(cnt) cnt.textContent=rows.length+' vuelos'+(noTail?' · ⚠ '+noTail+' sin matrícula':'');
+      if(warn) warn.textContent=skipped.length?'⚠ Filas sin número de vuelo omitidas: fila(s) '+skipped.slice(0,10).join(', ')+(skipped.length>10?'…':''):'';
+      document.getElementById('flights-excel-preview').style.display='block';
+    }catch(err){ console.error(err); toast('Error leyendo Excel: '+err.message,true); }
+  };
+  reader.readAsBinaryString(file);
+}
+
+async function confirmFlightsExcelImport(){
+  if(!_flightsExcelRows.length) return;
+  const total=_flightsExcelRows.length;
+  const station=window._station;
+  const btn=document.querySelector('#flights-excel-preview .btn-green');
+  if(btn){ btn.disabled=true; btn.textContent='Importando…'; }
+  try{
+    const CHUNK=400;
+    const rows=[..._flightsExcelRows];
+    for(let i=0;i<rows.length;i+=CHUNK){
+      const batch=FB.db.batch();
+      rows.slice(i,i+CHUNK).forEach(r=>{
+        const ref=FB.db.collection(AIRLINE_ID).doc(station).collection('flights').doc();
+        batch.set(ref,{...r, createdAt:Date.now(), createdBy:currentUserName, excelImport:true});
+      });
+      await batch.commit();
+    }
+    document.getElementById('flights-excel-preview').style.display='none';
+    _flightsExcelRows=[];
+    await loadFlights(station);
+    renderFlightsView();
+    toast('✅ '+total+' vuelos importados para '+station);
+  }catch(err){
+    console.error(err); toast('Error: '+err.message,true);
+    if(btn){ btn.disabled=false; btn.textContent='✅ Importar vuelos'; }
+  }
+}
+
+// ── Importar matrículas desde Excel ─────────────────────────────────────────
+function importTailAssignmentsExcel(input){
+  const file = input.files[0]; if(!file) return;
+  input.value = '';
+  const reader = new FileReader();
+  reader.onload = function(e){
+    try{
+      const wb   = XLSX.read(e.target.result, {type:'binary'});
+      const ws   = wb.Sheets[wb.SheetNames[0]];
+      const raw  = XLSX.utils.sheet_to_json(ws, {defval:''});
+      if(!raw.length){ toast('El archivo está vacío',true); return; }
+
+      function nrm(s){ return String(s).normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/\s+/g,'_').toUpperCase(); }
+      const hdrs = Object.keys(raw[0]);
+      const findCol = list => hdrs.find(h=>list.includes(nrm(h)))||null;
+
+      const colFlt = findCol(['VUELO','FLIGHT','NUMERO_VUELO','FLIGHT_NUMBER','FLT','FLT_NUMBER','FLIGHT_NO']);
+      const colReg = findCol(['MATRICULA','REGISTRATION','REG','TAIL','TAIL_NUMBER','AIRCRAFT','AC_REG']);
+
+      if(!colFlt||!colReg){ toast('No se encontraron columnas VUELO y MATRICULA — revisa los encabezados del Excel',true); return; }
+
+      const rows = [];
+      raw.forEach(r=>{
+        const flt = normFltNum(r[colFlt]||'');
+        const reg = String(r[colReg]||'').trim().toUpperCase();
+        if(flt && reg) rows.push({flt, reg});
+      });
+      if(!rows.length){ toast('No se encontraron filas válidas',true); return; }
+
+      _tailImportRows = rows;
+      const tbl = document.getElementById('tail-import-table');
+      const cnt = document.getElementById('tail-import-count');
+      if(tbl){
+        tbl.innerHTML = `<div style="display:grid;grid-template-columns:1fr 1fr;font-weight:700;color:#6d28d9;background:#ede9fe;padding:6px 10px;border-radius:6px 6px 0 0;font-size:11px;position:sticky;top:0"><span>VUELO</span><span>MATRÍCULA</span></div>`;
+        rows.forEach(r=>{
+          const d=document.createElement('div');
+          d.style.cssText='display:grid;grid-template-columns:1fr 1fr;padding:4px 10px;border-bottom:1px solid #ede9fe;font-size:11px';
+          d.innerHTML=`<span style="font-family:monospace;font-weight:700;color:#0f2a66">${r.flt}</span><span style="font-family:monospace;font-weight:600;color:#166534">${r.reg}</span>`;
+          tbl.appendChild(d);
+        });
+      }
+      if(cnt) cnt.textContent = rows.length+' registros';
+      document.getElementById('tail-import-preview').style.display='block';
+    }catch(err){ console.error(err); toast('Error leyendo Excel: '+err.message,true); }
+  };
+  reader.readAsBinaryString(file);
+}
+
+async function confirmTailImport(){
+  if(!_tailImportRows.length) return;
+  const btn = document.querySelector('#tail-import-preview .btn-green');
+  if(btn){ btn.disabled=true; btn.textContent='Guardando…'; }
+  try{
+    const CHUNK=400;
+    for(let i=0;i<_tailImportRows.length;i+=CHUNK){
+      const batch=FB.db.batch();
+      _tailImportRows.slice(i,i+CHUNK).forEach(r=>{
+        const ref=FB.db.collection(AIRLINE_ID).doc('config').collection('tailAssignments').doc(r.flt);
+        batch.set(ref,{registration:r.reg, updatedAt:Date.now()});
+        tailAssignments[r.flt]=r.reg;
+      });
+      await batch.commit();
+    }
+    document.getElementById('tail-import-preview').style.display='none';
+    _tailImportRows=[];
+    updateTailBadge();
+    toast('✅ '+Object.keys(tailAssignments).length+' matrículas guardadas en Firestore');
+  }catch(err){
+    console.error(err); toast('Error guardando: '+err.message,true);
+    if(btn){ btn.disabled=false; btn.textContent='✅ Confirmar'; }
+  }
+}
+
+// ── Sincronización desde AviationStack API ───────────────────────────────────
+async function syncFlightsFromAPI(){
+  const apiKey = window.APP_CONFIG?.aviationApiKey;
+  if(!apiKey){
+    toast('⚠ Agrega aviationApiKey en config.js — clave gratuita en aviationstack.com',true);
+    return;
+  }
+  const station = window._station;
+  if(!station){ toast('Selecciona una base primero',true); return; }
+
+  const dateEl  = document.getElementById('api-sync-date');
+  const dateStr = dateEl?.value || selectedDate;
+
+  const syncBtn = document.getElementById('btn-api-sync');
+  if(syncBtn){ syncBtn.disabled=true; syncBtn.textContent='Consultando API…'; }
+
+  try{
+    // AviationStack free plan = HTTP only → route through CORS proxy
+    const PROXY = 'https://corsproxy.io/?';
+    const BASE  = 'http://api.aviationstack.com/v1/flights';
+    const mkUrl = extra => PROXY + encodeURIComponent(
+      `${BASE}?access_key=${apiKey}&flight_date=${dateStr}&${extra}&limit=100`
+    );
+
+    async function apiFetch(url){
+      const r = await fetch(url);
+      if(!r.ok) throw new Error('HTTP '+r.status+' — '+r.statusText);
+      return r.json();
+    }
+
+    const [arrRes, depRes] = await Promise.all([
+      apiFetch(mkUrl('arr_iata='+station)).catch(e=>({error:{message:e.message}})),
+      apiFetch(mkUrl('dep_iata='+station)).catch(e=>({error:{message:e.message}}))
+    ]);
+
+    if(arrRes.error||depRes.error){
+      toast('Error API: '+((arrRes.error||depRes.error).message||'Revisa tu clave en config.js'),true);
+      return;
+    }
+
+    function parseISOTime(iso){
+      if(!iso) return '';
+      const m=String(iso).match(/T(\d{2}:\d{2})/);
+      return m?m[1]:'';
+    }
+
+    const arrFlights = (arrRes.data||[]).map(f=>({
+      type:'arr',
+      number: f.flight?.iata||f.flight?.icao||'',
+      origin: f.departure?.iata||'',
+      dest:   station,
+      eta:    parseISOTime(f.arrival?.estimated||f.arrival?.scheduled),
+      etd:    '',
+      ac:     tailAssignments[normFltNum(f.flight?.iata||'')] || '',
+      station, days:[], apiSynced:true, syncDate:dateStr
+    }));
+
+    const depFlights = (depRes.data||[]).map(f=>({
+      type:'dep',
+      number: f.flight?.iata||f.flight?.icao||'',
+      origin: station,
+      dest:   f.arrival?.iata||'',
+      eta:    '',
+      etd:    parseISOTime(f.departure?.estimated||f.departure?.scheduled),
+      ac:     tailAssignments[normFltNum(f.flight?.iata||'')] || '',
+      station, days:[], apiSynced:true, syncDate:dateStr
+    }));
+
+    // Merge: si hay una llegada y una salida del mismo AC en el mismo día → fusionar en un solo registro
+    const merged = [];
+    const usedDep = new Set();
+    arrFlights.forEach(arr=>{
+      if(!arr.number) return;
+      const matchDep = arr.ac ? depFlights.find(d=>d.ac===arr.ac&&!usedDep.has(d.number)) : null;
+      if(matchDep){ usedDep.add(matchDep.number); merged.push({...arr, etd:matchDep.etd, depNumber:matchDep.number, dest_dep:matchDep.dest}); }
+      else merged.push(arr);
+    });
+    depFlights.forEach(d=>{ if(!usedDep.has(d.number)&&d.number) merged.push(d); });
+
+    if(!merged.length){ toast('No se encontraron vuelos para '+station+' el '+dateStr,true); return; }
+
+    _flightAPIPreviewRows = merged;
+    renderFlightAPIPreview(merged);
+
+  }catch(err){ console.error(err); toast('Error de conexión: '+err.message,true); }
+  finally{ if(syncBtn){ syncBtn.disabled=false; syncBtn.textContent='🔄 Sincronizar desde API'; } }
+}
+
+function renderFlightAPIPreview(rows){
+  const preview = document.getElementById('flight-api-preview');
+  const table   = document.getElementById('flight-api-table');
+  if(!preview||!table) return;
+
+  const withTail=rows.filter(r=>r.ac).length;
+  const noTail  =rows.length-withTail;
+
+  table.innerHTML=`<div style="display:grid;grid-template-columns:90px 55px 130px 55px 55px 1fr 60px;font-weight:700;color:#1e40af;background:#dbeafe;padding:6px 10px;border-radius:6px 6px 0 0;font-size:10px;position:sticky;top:0">
+    <span>VUELO</span><span>TIPO</span><span>RUTA</span><span>ETA</span><span>ETD</span><span>MATRÍCULA</span><span style="text-align:center">OK</span>
+  </div>`;
+
+  rows.forEach(r=>{
+    const hasTail=!!r.ac;
+    const ruta = r.type==='arr' ? r.origin+'→'+r.dest : r.origin+'→'+(r.dest_dep||r.dest);
+    const row=document.createElement('div');
+    row.style.cssText='display:grid;grid-template-columns:90px 55px 130px 55px 55px 1fr 60px;padding:5px 10px;border-bottom:1px solid #dbeafe;font-size:10px;'+(hasTail?'':'background:#fef9c3');
+    row.innerHTML=`
+      <span style="font-family:monospace;font-weight:700;color:#0f2a66">${r.number}</span>
+      <span style="color:${r.type==='arr'?'#166534':'#b45309'};font-weight:600">${r.type==='arr'?'▼ ARR':'▲ DEP'}</span>
+      <span style="font-size:9px;color:#374151;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${ruta}</span>
+      <span style="font-family:monospace;color:#0f2a66">${r.eta||'—'}</span>
+      <span style="font-family:monospace;color:#0f2a66">${r.etd||'—'}</span>
+      <span style="font-family:monospace;font-weight:600;color:${hasTail?'#166534':'#9ca3af'}">${r.ac||'Sin matrícula'}</span>
+      <span style="text-align:center">${hasTail?'✅':'⚠️'}</span>`;
+    table.appendChild(row);
+  });
+
+  const cnt=document.getElementById('flight-api-count');
+  if(cnt) cnt.textContent=rows.length+' vuelos · '+withTail+' con matrícula'+(noTail?' · ⚠ '+noTail+' sin matrícula':'');
+  preview.style.display='block';
+}
+
+async function confirmFlightAPISync(){
+  if(!_flightAPIPreviewRows.length) return;
+  const station=window._station;
+  const total=_flightAPIPreviewRows.length;
+  const btn=document.querySelector('#flight-api-preview .btn-green');
+  if(btn){ btn.disabled=true; btn.textContent='Guardando…'; }
+  try{
+    function toMin(hhmm){ if(!hhmm) return 0; const [h,m]=(hhmm||'00:00').split(':').map(Number); return h*60+m; }
+    const CHUNK=400;
+    const rows=[..._flightAPIPreviewRows];
+    for(let i=0;i<rows.length;i+=CHUNK){
+      const batch=FB.db.batch();
+      rows.slice(i,i+CHUNK).forEach(r=>{
+        const ref=FB.db.collection(AIRLINE_ID).doc(station).collection('flights').doc();
+        const etaM=toMin(r.eta), etdM=toMin(r.etd);
+        batch.set(ref,{...r, etaM, etdM, createdAt:Date.now(), createdBy:currentUserName});
+      });
+      await batch.commit();
+    }
+    document.getElementById('flight-api-preview').style.display='none';
+    _flightAPIPreviewRows=[];
+    await loadFlights(station);
+    renderFlightsView();
+    toast('✅ '+total+' vuelos sincronizados para '+station);
+  }catch(err){
+    console.error(err); toast('Error: '+err.message,true);
+    if(btn){ btn.disabled=false; btn.textContent='✅ Guardar vuelos'; }
+  }
+}
+
 function openFlightModal(flight){
   if(typeof flight === 'string') try{ flight=JSON.parse(flight); }catch(_){ flight=null; }
   document.getElementById('flight-modal-title').textContent = flight ? '✏️ Editar vuelo' : '✈️ Nuevo vuelo';
   const flSt = document.getElementById('fl-station');
-  if(flSt) flSt.innerHTML = stations.map(s=>`<option value="${s.code}"${(flight?.station||window._station||'PUJ')===s.code?' selected':''}>${s.code} · ${s.name||''}</option>`).join('');
+  if(flSt) flSt.innerHTML = stations.map(s=>`<option value="${s.code}"${(flight?.station||activeStation())===s.code?' selected':''}>${s.code} · ${s.name||''}</option>`).join('');
   const flAc = document.getElementById('fl-ac');
   if(flAc){ flAc.innerHTML = '<option value="">— Sin asignar —</option>' + aircraft.map(a=>`<option value="${a.reg}"${flight?.ac===a.reg?' selected':''}>${a.reg}</option>`).join(''); }
   document.querySelectorAll('.fl-day').forEach(cb=>{ cb.checked = flight ? (flight.days||[]).includes(Number(cb.value)) : true; });
@@ -4405,7 +5454,7 @@ async function submitFlight(){
   const modal = document.getElementById('modal-flight');
   const flType = modal._flType || 'arr';
   const editId = modal._editId;
-  const station = document.getElementById('flights-station-filter')?.value || window._station||'PUJ';
+  const station = document.getElementById('flights-station-filter')?.value || activeStation();
   const days  = [...document.querySelectorAll('.day-btn.active')].map(b=>parseInt(b.dataset.day));
   const notes = (document.getElementById('fl-notes')?.value||'').trim();
 
@@ -4447,7 +5496,7 @@ function flightTimeToMins(t){ if(!t) return 0; const [h,m]=(t||'00:00').split(':
 function quickEditTimes(taskId, ac){
   const t = tasks.find(x=>x.id===taskId);
   if(!t) return;
-  const st = window._station||'PUJ';
+  const st = activeStation();
   const overlay = document.createElement('div');
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:9998';
   const dlg = document.createElement('div');
@@ -4498,9 +5547,9 @@ async function renderFlightsView(){
       const o = document.createElement('option');
       o.value = s.code; o.textContent = s.code; stEl.appendChild(o);
     });
-    stEl.value = window._station || 'PUJ';
+    stEl.value = window._station || activeStation();
   }
-  const station = stEl ? stEl.value : (window._station || 'PUJ');
+  const station = stEl ? stEl.value : (activeStation());
   const canEdit = currentRole === 'superadmin';
   console.log('[Vuelos] canEdit:', canEdit);
 
@@ -4574,9 +5623,9 @@ async function renderFlightsView(){
         if(isArr){
           parts.push('<span style="background:#dbeafe;color:#1e40af;padding:1px 6px;border-radius:4px">'+esc(f.origin||'?')+'</span>');
           parts.push('<span style="color:#94a3b8">→</span>');
-          parts.push('<span style="background:#1e40af;color:#fff;padding:1px 6px;border-radius:4px">'+(station||'PUJ')+'</span>');
+          parts.push('<span style="background:#1e40af;color:#fff;padding:1px 6px;border-radius:4px">'+(station||activeStation())+'</span>');
         } else {
-          parts.push('<span style="background:#166534;color:#fff;padding:1px 6px;border-radius:4px">'+(station||'PUJ')+'</span>');
+          parts.push('<span style="background:#166534;color:#fff;padding:1px 6px;border-radius:4px">'+(station||activeStation())+'</span>');
           parts.push('<span style="color:#94a3b8">→</span>');
           parts.push('<span style="background:#dcfce7;color:#166534;padding:1px 6px;border-radius:4px">'+esc(f.dest||'?')+'</span>');
         }
@@ -4756,7 +5805,7 @@ async function generateDailyReport(){
   }
   const { jsPDF } = window.jspdf || window;
   const doc = new jsPDF({ orientation:'portrait', unit:'mm', format:'a4' });
-  const st = window._station || 'PUJ';
+  const st = window._station || activeStation();
   const date = selectedDate || localDateStr();
   const dateFmt = new Date(date+'T12:00:00').toLocaleDateString('es-DO',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
   const dt = dayTasks();

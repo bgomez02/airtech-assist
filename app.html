@@ -1,0 +1,1516 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<!-- ══ Security Headers ══ -->
+<meta http-equiv="X-Content-Type-Options" content="nosniff">
+<meta http-equiv="X-Frame-Options" content="DENY">
+<meta http-equiv="Referrer-Policy" content="strict-origin-when-cross-origin">
+<meta http-equiv="Permissions-Policy" content="camera=(), microphone=(), geolocation=()">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://www.gstatic.com https://cdnjs.cloudflare.com https://*.firebaseapp.com https://*.googleapis.com https://*.firebase.google.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://*.supabase.co https://*.googleapis.com; connect-src 'self' https://*.firebaseio.com https://*.firebaseapp.com https://*.googleapis.com https://*.supabase.co wss://*.firebaseio.com https://identitytoolkit.googleapis.com http://api.aviationstack.com https://api.aviationstack.com https://corsproxy.io; frame-ancestors 'none';">
+<!-- ══ Cache ══ -->
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AirTech Assist</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<!-- v1778703254 -->
+<!-- Firebase Compat SDK (funciona sin módulos ES) -->
+<!-- CDNs externos -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.3/jspdf.plugin.autotable.min.js"></script>
+
+<!-- EmailJS (debe ir antes de firebase-init y app.js) -->
+<script type="text/javascript" src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+<script type="text/javascript">
+  emailjs.init({
+    publicKey: "MIX1hfpKVHel5scuZ",
+  });
+</script>
+
+<!-- Firebase -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script src="firebase-init.js"></script>
+<script src="config.js"></script><!-- Configuración local — ver config.example.js -->
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="theme-color" content="#0f2a66">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="AirTech Assist">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- SCREEN: Loading -->
+<div id="loader">
+  <img src="icon-192.png" style="width:80px;height:80px;border-radius:18px;margin-bottom:8px;box-shadow:0 4px 20px rgba(0,0,0,.3)">
+  <div class="spin" id="loader-spin"></div>
+  <div style="font-weight:600;font-size:15px">Conectando AirTech Assist...</div>
+  <div style="font-size:12px;opacity:.6" id="loader-sub">Sincronizando con Firebase ☁️</div>
+  <div id="loader-err" style="display:none;margin-top:16px;background:rgba(220,38,38,.15);border:1px solid rgba(220,38,38,.4);border-radius:10px;padding:14px 18px;max-width:420px;text-align:left">
+    <div style="font-weight:700;font-size:13px;color:#fca5a5;margin-bottom:8px">⚠️ No se pudo conectar con Firebase</div>
+    <div id="loader-err-msg" style="font-size:11px;color:#fecaca;line-height:1.6"></div>
+    <div style="margin-top:10px;font-size:11px;color:#fde68a">
+      <strong>Soluciones:</strong><br>
+      1. Ve a Firebase Console → Authentication → Settings → Authorized domains → agrega <strong id="loader-domain"></strong><br>
+      2. Authentication → Sign-in method → activa <strong>Anónimo</strong><br>
+      3. Firestore → Reglas → publica reglas permisivas<br>
+      4. Recarga con <strong>Ctrl+Shift+R</strong>
+    </div>
+  </div>
+</div>
+
+<!-- SCREEN: Login -->
+<div id="login-screen" style="display:none">
+  <div class="login-box">
+    <img src="icon-192.png" style="width:72px;height:72px;border-radius:16px;margin-bottom:8px;box-shadow:0 4px 16px rgba(0,0,0,.2)" onerror="this.style.display='none'">
+    <div class="login-title">AirTech Assist</div>
+    <div class="login-sub">Ground Operations</div>
+
+    <!-- Base selector — dinámico -->
+    <div style="margin-bottom:14px;margin-top:10px">
+      <div style="font-size:10px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Selecciona tu base</div>
+      <div id="station-selector" style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+        <!-- Renderizado dinámicamente por renderStationTabs() -->
+        <div class="role-tab active" id="stab-PUJ" onclick="setStation('PUJ')" style="font-size:13px;padding:10px 6px">🏖️<br><span style="font-size:10px">PUJ — Punta Cana</span></div>
+        <div class="role-tab" id="stab-SDQ" onclick="setStation('SDQ')" style="font-size:13px;padding:10px 6px">🏙️<br><span style="font-size:10px">SDQ — Sto. Domingo</span></div>
+      </div>
+    </div>
+
+    <!-- Name -->
+    <input class="login-inp" id="login-name" type="text"
+      placeholder="Tu nombre completo" autocomplete="name"
+      oninput="this.value=this.value.toUpperCase();detectSuperAdmin(this.value)"
+      onkeydown="if(event.key==='Enter')document.getElementById('login-pin').focus()">
+
+    <!-- PIN -->
+    <input class="login-inp" id="login-pin" type="password" maxlength="60"
+      placeholder="Contraseña o PIN de acceso"
+      onkeydown="if(event.key==='Enter')doLogin()"
+      style="margin-top:8px">
+    <div id="login-superadmin-hint" style="display:none;font-size:10px;color:#7c3aed;margin-top:4px;background:#f5f3ff;padding:5px 10px;border-radius:8px">
+      👑 Super Admin detectado — ingresa la contraseña de tu correo
+    </div>
+
+    <div class="login-err" id="login-err"></div>
+    <button class="login-btn" onclick="doLogin()" id="login-btn-main">Ingresar</button>
+    <div style="margin-top:12px;font-size:10px;color:#94a3b8">
+      🔒 Acceso restringido · Solo personal autorizado<br>
+      Contacta a tu supervisor si no tienes PIN
+    </div>
+    <div style="margin-top:14px;border-top:1px solid #f1f5f9;padding-top:14px">
+      <button onclick="openReport()" style="width:100%;padding:10px;border-radius:10px;border:1.5px solid #fca5a5;background:#fff0f0;color:#dc2626;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
+        ⚠️ Reportar anomalía en aeronave
+      </button>
+      <div style="font-size:10px;color:#94a3b8;margin-top:5px;text-align:center">No requiere login · Notificación inmediata</div>
+    </div>
+  </div>
+  </div>
+</div>
+
+<!-- ════ REPORT SCREEN (sin login) ════ -->
+<div id="report-screen">
+  <div class="report-box">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+      <img src="icon-192.png" style="width:44px;height:44px;border-radius:10px" onerror="this.style.display='none'">
+      <div>
+        <div class="report-title">⚠️ Reportar anomalía</div>
+        <div class="report-sub">Sin login requerido · Se notifica en tiempo real</div>
+      </div>
+    </div>
+
+    <!-- Station selector — dinámico -->
+    <div style="margin-bottom:12px">
+      <label class="lbl">Base</label>
+      <div id="rep-station-selector" style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+        <div class="role-tab active" id="rep-stab-PUJ" onclick="repSetStation('PUJ')" style="padding:8px 6px;font-size:12px">🏖️ PUJ</div>
+        <div class="role-tab" id="rep-stab-SDQ" onclick="repSetStation('SDQ')" style="padding:8px 6px;font-size:12px">🏙️ SDQ</div>
+      </div>
+    </div>
+
+    <!-- Aircraft select -->
+    <div style="margin-bottom:12px">
+      <label class="lbl">Matrícula de la aeronave</label>
+      <select class="fi" id="rep-ac">
+        <option value="">— Seleccionar aeronave —</option>
+        <option>HI1026</option><option>HI1027</option><option>HI1078</option><option>HI1081</option>
+        <option>HI1082</option><option>HI1098</option><option>HI1099</option><option>HI1101</option>
+        <option>HI1103</option><option>HI1104</option><option>HI1118</option><option>HI1133</option>
+        <option>HI1134</option><option>HI1140</option>
+      </select>
+    </div>
+
+    <!-- Reporter name -->
+    <div style="margin-bottom:12px">
+      <label class="lbl">Tu nombre</label>
+      <input class="fi" id="rep-name" type="text" placeholder="Ej: JUAN PÉREZ" oninput="this.value=this.value.toUpperCase()">
+    </div>
+
+    <!-- Report message -->
+    <div style="margin-bottom:16px">
+      <label class="lbl">Descripción del reporte / anomalía</label>
+      <textarea class="fi" id="rep-msg" rows="4" placeholder="Describe detalladamente la anomalía encontrada..." style="resize:vertical;font-size:12px"></textarea>
+    </div>
+
+    <div style="display:flex;gap:8px">
+      <button onclick="closeReport()" class="btn btn-gray" style="flex:1;justify-content:center">← Volver al login</button>
+      <button onclick="submitReport()" class="btn btn-blue" id="rep-submit-btn" style="flex:2;justify-content:center;font-size:13px">📤 Enviar reporte</button>
+    </div>
+    <div id="rep-err" style="font-size:11px;color:#dc2626;margin-top:8px;min-height:16px;text-align:center"></div>
+  </div>
+</div>
+
+<!-- Tooltips globales (nunca recortados) -->
+<div class="gslot-tip" id="gslot-tip-global"></div>
+<div class="bar-tooltip" id="bar-tooltip-global"></div>
+
+<!-- MAIN APP -->
+<div class="app" id="main-app" style="display:none">
+
+  <div class="status-bar">
+    <div id="status-dot" class="dot-off"></div>
+    <span id="status-txt">Conectando...</span>
+    <span id="offline-badge" style="display:none;background:#f59e0b;color:#fff;font-size:10px;font-weight:700;padding:3px 10px;border-radius:20px;display:none;align-items:center;gap:4px">
+      📵 OFFLINE — mostrando datos en caché
+    </span>
+    <span class="time-now" id="clock">00:00</span>
+    <span id="role-indicator" style="margin-left:6px"></span>
+    <span id="plan-badge" style="font-size:10px;font-weight:700;padding:3px 9px;border-radius:20px;cursor:default" title="Plan de suscripción activo"></span>
+    <button id="station-switcher-btn" onclick="showStationPicker()"
+      style="background:#0f2a66;color:#fff;border:none;border-radius:20px;padding:5px 14px;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:5px">
+      🏖️ PUJ
+    </button>
+    <span style="margin-left:auto;font-size:10px;color:#94a3b8" id="uid-label"></span>
+    <button class="btn btn-gray" style="padding:5px 10px;font-size:11px" onclick="doLogout()">↩ Salir</button>
+  </div>
+
+  <!-- Supabase Config Panel (shown when not configured) -->
+  <div id="sb-config-panel" style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:10px;padding:12px 16px;margin-bottom:10px;display:none">
+    <div style="font-size:11px;font-weight:700;color:#166534;margin-bottom:8px">🟢 Configurar Supabase Storage (una sola vez)</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+      <div style="flex:2;min-width:200px">
+        <div style="font-size:10px;font-weight:600;color:#64748b;text-transform:uppercase;margin-bottom:3px">Project URL</div>
+        <input id="sb-url-inp" class="fi" type="text" placeholder="https://xxxx.supabase.co" style="font-size:11px;font-family:monospace;padding:6px 10px">
+      </div>
+      <div style="flex:3;min-width:240px">
+        <div style="font-size:10px;font-weight:600;color:#64748b;text-transform:uppercase;margin-bottom:3px">Anon / Public Key</div>
+        <input id="sb-key-inp" class="fi" type="text" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." style="font-size:11px;font-family:monospace;padding:6px 10px">
+      </div>
+      <button onclick="saveSBConfig()" class="btn btn-green" style="white-space:nowrap;padding:8px 14px">💾 Guardar</button>
+    </div>
+    <div style="font-size:10px;color:#64748b;margin-top:6px">supabase.com → Project Settings → API → copia Project URL y anon key</div>
+  </div>
+
+  <!-- Supabase Status Bar -->
+  <div id="sb-status-bar" style="display:none;align-items:center;gap:8px;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:6px 12px;margin-bottom:10px;font-size:11px">
+    <span style="color:#166534;font-weight:600">🟢 Supabase conectado:</span>
+    <span id="sb-project-name" style="font-family:monospace;color:#166534"></span>
+    <span style="color:#64748b">· bucket: <code>airtechassist-files</code></span>
+    <button onclick="clearSBConfig()" class="btn btn-gray" style="padding:3px 9px;font-size:10px;margin-left:auto">Cambiar</button>
+  </div>
+
+  <div class="header">
+    <div class="logo">
+      <div class="logo-icon" style="padding:4px;background:transparent"><img src="icon-192.png" style="width:38px;height:38px;border-radius:8px;display:block"></div>
+      <div>
+        <div class="logo-title">AirTech Assist</div>
+        <div class="logo-sub">Ground Ops · <span id="station-badge" style="background:#0f2a66;color:#fff;padding:1px 7px;border-radius:10px;font-weight:700">PUJ</span> · Tiempo Real</div>
+      </div>
+    </div>
+    <div class="hbtns">
+      <button class="btn btn-green" id="btn-excel" onclick="exportExcel()">⬇ Exportar Excel</button>
+      <button class="btn btn-blue" id="btn-nueva-ot" onclick="openModal(null)" style="display:none">+ Nueva OT</button>
+      <button class="btn" id="btn-autoassign" onclick="openAutoAssign()" style="display:none;background:#7c3aed;color:#fff;align-items:center;gap:5px">🤖 Auto-asignar</button>
+      <button class="btn btn-gray" id="btn-install" onclick="installApp()" style="display:none;border-color:#0f2a66;color:#0f2a66" title="Instalar app en este dispositivo">📲 Instalar app</button>
+    </div>
+  </div>
+
+  <!-- DATE BAR -->
+  <div class="date-bar">
+    <label>📅 Fecha:</label>
+    <input type="date" class="date-inp" id="date-filter" onchange="onDateChange()">
+    <button class="btn btn-gray" style="padding:5px 10px;font-size:11px" onclick="changeDay(-1)">‹ Anterior</button>
+    <button class="btn btn-gray" style="padding:5px 10px;font-size:11px" onclick="changeDay(0)">Hoy</button>
+    <button onclick="generateDailyReport()" style="background:#0f2a66;color:#fff;border:none;padding:5px 12px;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:5px">📄 PDF</button>
+    <button class="btn btn-gray" style="padding:5px 10px;font-size:11px" onclick="changeDay(1)">Siguiente ›</button>
+    <span class="date-count" id="date-count">0 vuelos</span>
+  </div>
+
+  <div class="kpis" style="grid-template-columns:repeat(6,1fr)">
+    <div class="kpi"><div class="kpi-lbl">Órdenes del día</div><div class="kpi-val" id="kv1" style="color:#0f2a66">0</div></div>
+    <div class="kpi"><div class="kpi-lbl">Aeronaves</div><div class="kpi-val" id="kv2" style="color:#0d6e47">0</div></div>
+    <div class="kpi"><div class="kpi-lbl">Téc. en turno</div><div class="kpi-val" id="kv3" style="color:#7a4f00">0</div><div id="kv3-shifts" style="margin-top:4px;display:flex;gap:3px;flex-wrap:wrap;justify-content:center"></div></div>
+    <div class="kpi"><div class="kpi-lbl">Pico demanda</div><div class="kpi-val" id="kv4" style="color:#0f2a66">0</div></div>
+    <div class="kpi" style="border-color:#fde68a;background:#fffbeb">
+      <div class="kpi-lbl" style="color:#b45309">H. libres del día</div>
+      <div class="kpi-val" id="kv6" style="color:#b45309">0h</div>
+      <div style="font-size:9px;color:#d97706;margin-top:2px">técnicos asignados hoy</div>
+    </div>
+    <div class="kpi"><div class="kpi-lbl">Conflictos</div><div class="kpi-val" id="kv5" style="color:#2a6040">0</div></div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab on" id="TAB-gantt"  onclick="switchTab('gantt')">📋 Gantt</button>
+    <button class="tab"    id="TAB-demand" onclick="switchTab('demand')">📊 Demanda</button>
+    <button class="tab"    id="TAB-staff"  onclick="switchTab('staff')">👥 Roster</button>
+    <button class="tab"    id="TAB-users"  onclick="switchTab('users')" id="tab-users">🔐 Usuarios</button>
+<button class="tab"    id="TAB-dashboard" onclick="switchTab('dashboard')" style="display:none">📈 Dashboard</button>
+    <button class="tab"    id="TAB-plan"   onclick="switchTab('plan')">📌 Planificación</button>
+    <button class="tab"    id="TAB-schedule" onclick="switchTab('schedule')" style="display:none">📅 Horarios</button>
+    <button class="tab"    id="TAB-flights" onclick="switchTab('flights')" style="display:none">✈️ Vuelos</button>
+    <button class="tab"    id="TAB-catalog" onclick="switchTab('catalog')" style="display:none">📚 Catálogo</button>
+<button class="tab"    id="TAB-mcc"       onclick="switchTab('mcc')"       style="display:none">🌐 MCC</button>
+  </div>
+
+  <!-- VIEW GANTT -->
+  <div class="view on" id="VIEW-gantt">
+    <!-- Tech banner -->
+    <div class="tech-banner" id="tech-banner" style="display:none">
+      👷 <span><strong>Modo técnico:</strong> Puedes agregar comentarios/anomalías y descargar documentos. Para crear o modificar OTs contacta a tu supervisor.</span>
+    </div>
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;flex-wrap:wrap;gap:6px">
+        <div class="card-title" style="margin:0">📋 Gantt — <span id="gantt-date-lbl" style="text-transform:none;font-weight:400;color:#1e293b;font-size:12px"></span></div>
+        <div class="legend">
+          <span><span class="ld" style="background:rgba(245,158,11,.4);border:1px solid rgba(245,158,11,.6)"></span>Ground slot</span>
+          <span><span class="ld" style="background:#0f2a66"></span>Mantenimiento</span>
+          <span><span class="ld" style="background:#dc2626"></span>Conflicto</span>
+          <span><span class="ld" style="background:#ef4444;width:3px;height:14px"></span>Hora actual</span>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;font-size:10px;color:#64748b;margin-bottom:6px;flex-wrap:wrap;align-items:center">
+        <span style="font-weight:600">Turnos:</span>
+        <span>🌅 <span style="background:#3b82f6;color:#fff;padding:1px 7px;border-radius:10px;font-size:10px">05–14h</span></span>
+        <span>🌇 <span style="background:#f59e0b;color:#fff;padding:1px 7px;border-radius:10px;font-size:10px">13–22h</span></span>
+        <span>🌙 <span style="background:#8b5cf6;color:#fff;padding:1px 7px;border-radius:10px;font-size:10px">21–05h</span></span>
+      </div>
+      <div class="gantt-wrap">
+        <div class="gantt-inner">
+          <!-- Eje horas -->
+          <div class="axis-row">
+            <div class="axis-left"></div>
+            <div class="axis-track" id="gaxis"></div>
+          </div>
+          <!-- Bandas de turno -->
+          <div class="shift-row">
+            <div class="shift-left"></div>
+            <div class="shift-bands" id="shift-bands"></div>
+          </div>
+          <!-- Filas OT — cada fila es flex con info+track+actions alineados ══ -->
+          <div style="position:relative">
+            <!-- LÍNEA DE TIEMPO — dentro de wrapper que cubre solo el área del track -->
+            <div id="tl-wrapper" style="position:absolute;top:0;bottom:0;left:210px;right:80px;pointer-events:none;z-index:50">
+              <div id="time-line" style="position:absolute;top:0;bottom:0;width:2px;background:#ef4444">
+                <span id="time-line-label" style="position:absolute;top:0;left:50%;transform:translateX(-50%);background:#ef4444;color:#fff;font-size:9px;font-weight:700;padding:2px 5px;border-radius:4px;white-space:nowrap"></span>
+              </div>
+            </div>
+            <!-- Filas OT -->
+            <div id="gantt-rows"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- VIEW DEMANDA -->
+  <div class="view" id="VIEW-demand">
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:6px">
+        <div class="card-title" style="margin:0">📊 Técnicos requeridos por hora</div>
+        <button class="btn btn-green" onclick="exportExcel()">⬇ Exportar Excel</button>
+      </div>
+      <div class="chart-wrap" id="dchart"></div>
+      <div class="x-axis" id="dxaxis"></div>
+      <div style="background:#f8fafc;border-radius:8px;padding:10px;font-size:11px;color:#64748b">ℹ️ Cada barra = técnicos activos simultáneamente en esa hora. El Excel acumula el historial diario para análisis mensual.</div>
+    </div>
+    <div class="card"><div class="card-title">📁 Historial acumulado</div><div id="history-tbl" style="max-height:220px;overflow-y:auto"></div></div>
+  </div>
+
+  <!-- VIEW ROSTER -->
+  <div class="view" id="VIEW-staff">
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+        <div class="card-title" style="margin:0" id="roster-title">👥 Roster</div>
+        <div style="display:flex;gap:6px" id="roster-admin-btns" style="display:none">
+          <button class="btn btn-green" id="btn-add-tech" onclick="openAddTechForm()" style="display:none">+ Agregar técnico</button>
+          <button class="btn" onclick="importRosterExcel()" id="btn-import-roster" style="display:none;background:#7c3aed;color:#fff">📥 Importar Excel</button>
+          <input type="file" id="roster-excel-input" accept=".xlsx,.xls" style="display:none" onchange="handleRosterExcel(this)">
+          <button class="btn" onclick="clearAllTechs()" id="btn-clear-roster" style="display:none;background:#ef4444;color:#fff">🗑 Borrar todo</button>
+        </div>
+      </div>
+
+      <!-- ⚙️ Configurador de turnos (solo superadmin) -->
+      <details id="shift-config-panel" style="display:none;margin-bottom:12px">
+        <summary style="background:#f0f9ff;border:1.5px solid #7dd3fc;border-radius:8px;padding:9px 14px;font-size:11px;font-weight:700;color:#0369a1;cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px">
+          ⏰ Configurar turnos &nbsp;<span style="font-size:10px;color:#64748b;font-weight:400">(haz clic para expandir)</span>
+        </summary>
+        <div style="border:1.5px solid #7dd3fc;border-top:none;border-radius:0 0 8px 8px;padding:12px 14px;background:#f0f9ff">
+          <div id="shift-defs-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:10px"></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button onclick="addShiftDef()" class="btn btn-blue" style="font-size:11px;padding:5px 12px">+ Agregar turno</button>
+            <button onclick="saveShiftDefs()" class="btn btn-green" style="font-size:11px;padding:5px 12px">💾 Guardar cambios</button>
+          </div>
+          <div style="font-size:10px;color:#64748b;margin-top:8px">Los turnos definen las franjas horarias visibles en el Gantt y el Roster. Usa formato 24h (ej: 06:00).</div>
+        </div>
+      </details>
+
+      <!-- Formulario agregar técnico (inline) -->
+      <div id="add-tech-form" style="display:none;background:#f0fdf4;border:1.5px solid #86efac;border-radius:10px;padding:12px 14px;margin-bottom:12px">
+        <div style="font-size:11px;font-weight:700;color:#166534;margin-bottom:8px">➕ Nuevo técnico</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+          <div style="flex:2;min-width:160px">
+            <label class="lbl">Nombre completo</label>
+            <input class="fi" id="new-tech-name" type="text" placeholder="EJ: JUAN PÉREZ" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()">
+          </div>
+          <div style="min-width:130px">
+            <label class="lbl">Categoría</label>
+            <select class="fi" id="new-tech-role">
+              <option value="FIRMA">FIRMA</option>
+              <option value="NO-FIRMA">NO-FIRMA</option>
+              <option value="ASISTENTE">ASISTENTE</option>
+              <option value="GASEO">⛽ GASEO</option>
+              <option value="DESPACHO">✈ DESPACHO</option>
+            </select>
+          </div>
+          <div style="min-width:140px">
+            <label class="lbl">Turno</label>
+            <select class="fi" id="new-tech-shift"></select>
+          </div>
+          <div style="display:flex;gap:6px;margin-top:4px">
+            <button onclick="confirmAddTech()" class="btn btn-green">✅ Agregar</button>
+            <button onclick="document.getElementById('add-tech-form').style.display='none'" class="btn" style="background:#e2e8f0;color:#374151">✕</button>
+          </div>
+        </div>
+      </div>
+
+      <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:9px 12px;margin-bottom:12px;font-size:11px;color:#92400e" id="roster-hint">
+        💡 Firma = 6h · No Firma = 3h · Asistente = 1.5h · Gaseo/Despacho = rol especial
+      </div>
+      <div style="overflow-x:auto">
+        <table class="stbl">
+          <thead><tr><th>#</th><th>Nombre</th><th>Categoría</th><th>Horas total</th><th>Turno</th><th style="min-width:110px">Disponibilidad hoy</th><th id="th-del"></th></tr></thead>
+          <tbody id="stbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- VIEW USUARIOS -->
+  <div class="view" id="VIEW-users">
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+        <div class="card-title" style="margin:0">🔐 Control de acceso — Usuarios autorizados</div>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-gray" onclick="renderUsers()" style="font-size:11px;padding:6px 12px">🔄 Actualizar</button>
+          <button class="btn btn-blue" id="btn-add-user" onclick="openAddUser()">+ Agregar usuario</button>
+        </div>
+      </div>
+      <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:9px 12px;margin-bottom:12px;font-size:11px;color:#92400e">
+        💡 Solo las personas en esta lista pueden ingresar a la app. El PIN debe tener 4–6 dígitos. Comparte el PIN con cada usuario de forma segura.
+      </div>
+
+      <!-- STATIONS MANAGER -->
+      <div style="background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:10px;padding:12px 15px;margin-bottom:14px">
+        <!-- ✈️ MATRÍCULAS -->
+        <div style="margin-bottom:18px;padding-bottom:14px;border-bottom:1px solid #e2e8f0">
+          <div style="font-size:11px;font-weight:700;color:#1e40af;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">✈️ Flota — Matrículas</div>
+          <div id="aircraft-manager-list"></div>
+          <div id="aircraft-add-wrap" style="display:none;margin-top:8px">
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <input class="fi" id="aircraft-new-reg" type="text" placeholder="Matrícula (ej: HI1150)"
+                style="width:150px;font-family:monospace;text-transform:uppercase"
+                oninput="this.value=this.value.toUpperCase()">
+              <input class="fi" id="aircraft-new-model" type="text" placeholder="Modelo (ej: B737 MAX 8)"
+                style="width:160px">
+              <input class="fi" id="aircraft-new-msn" type="text" placeholder="MSN / Serie (ej: 7845)"
+                style="width:130px;font-family:monospace">
+              <button class="btn btn-blue" style="padding:5px 14px;font-size:12px"
+                onclick="(async()=>{await saveAircraft(document.getElementById('aircraft-new-reg').value,document.getElementById('aircraft-new-model').value,true,document.getElementById('aircraft-new-msn').value);document.getElementById('aircraft-new-reg').value='';document.getElementById('aircraft-new-model').value='';document.getElementById('aircraft-new-msn').value='';renderAircraftManager();})()">
+                + Agregar
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:6px">
+          <div style="font-size:11px;font-weight:700;color:#1e40af;text-transform:uppercase;letter-spacing:.05em">🛫 Bases operativas configuradas</div>
+          <button onclick="openAddStation()" class="btn btn-blue" style="padding:4px 12px;font-size:11px">+ Agregar base</button>
+        </div>
+        <div id="stations-list" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+      </div>
+
+      <div id="users-list"></div>
+    </div>
+  </div>
+
+  <!-- VIEW MCC -->
+  <div class="view" id="VIEW-mcc">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+      <div>
+        <div style="font-size:15px;font-weight:800;color:#0f2a66">🌐 Control Multi-Base — MCC</div>
+        <div style="font-size:11px;color:#64748b">Vista en tiempo real de todas las bases operativas</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:6px">
+          <button onclick="mccChangeDay(-1)" class="btn" style="padding:5px 10px;font-size:12px">‹</button>
+          <input type="date" id="mcc-date-filter" class="fi" style="width:140px;padding:5px 8px;font-size:12px" onchange="mccDateChanged()">
+          <button onclick="mccChangeDay(0)" class="btn" style="padding:5px 10px;font-size:12px">Hoy</button>
+          <button onclick="mccChangeDay(1)" class="btn" style="padding:5px 10px;font-size:12px">›</button>
+        </div>
+        <div style="font-size:11px;color:#94a3b8" id="mcc-last-update">Actualizando...</div>
+        <button onclick="mccToggleReportForm()" id="mcc-rep-toggle-btn" class="btn btn-blue" style="padding:7px 16px;font-size:12px;gap:6px">✏️ Nuevo reporte</button>
+      </div>
+    </div>
+
+    <!-- Formulario de reporte MCC (oculto por defecto) -->
+    <div id="mcc-report-form-wrap" style="display:none;margin-bottom:16px">
+      <div class="card" style="border:2px solid #6d28d9;padding:20px">
+        <div style="font-size:13px;font-weight:800;color:#6d28d9;margin-bottom:14px">✏️ Nuevo reporte desde MCC</div>
+
+        <!-- Tipo -->
+        <div style="margin-bottom:12px">
+          <label class="lbl">Tipo de reporte</label>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <label id="mcc-rep-type-anomaly" style="display:flex;align-items:center;gap:8px;padding:10px 12px;border:2px solid #0f2a66;border-radius:8px;cursor:pointer;background:#eff6ff">
+              <input type="radio" name="mcc-rep-type" value="anomaly" checked onchange="mccRepTypeChange(this.value)" style="accent-color:#0f2a66">
+              <div><div style="font-size:12px;font-weight:700;color:#0f2a66">🔧 Anomalía técnica</div><div style="font-size:10px;color:#64748b">Problema de mantenimiento</div></div>
+            </label>
+            <label id="mcc-rep-type-pilot" style="display:flex;align-items:center;gap:8px;padding:10px 12px;border:2px solid #e2e8f0;border-radius:8px;cursor:pointer;background:#f8fafc">
+              <input type="radio" name="mcc-rep-type" value="pilot" onchange="mccRepTypeChange(this.value)" style="accent-color:#3b82f6">
+              <div><div style="font-size:12px;font-weight:700;color:#1e40af">📡 Mensaje de piloto</div><div style="font-size:10px;color:#64748b">Notificación al MCC</div></div>
+            </label>
+          </div>
+        </div>
+
+        <!-- Base + Matrícula en fila -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+          <div>
+            <label class="lbl">Base</label>
+            <select class="fi" id="mcc-rep-station">
+              <option value="">— Seleccionar base —</option>
+            </select>
+          </div>
+          <div>
+            <label class="lbl">Matrícula</label>
+            <select class="fi" id="mcc-rep-ac">
+              <option value="">— Seleccionar aeronave —</option>
+              <option>HI1026</option><option>HI1027</option><option>HI1078</option><option>HI1081</option>
+              <option>HI1082</option><option>HI1098</option><option>HI1099</option><option>HI1101</option>
+              <option>HI1103</option><option>HI1104</option><option>HI1118</option><option>HI1133</option>
+              <option>HI1134</option><option>HI1140</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Nombre -->
+        <div style="margin-bottom:12px">
+          <label class="lbl" id="mcc-rep-name-lbl">Reportado por (nombre del piloto / MCC)</label>
+          <input class="fi" id="mcc-rep-name" type="text" placeholder="Ej: CAPITÁN RODRÍGUEZ" oninput="this.value=this.value.toUpperCase()">
+        </div>
+
+        <!-- Descripción -->
+        <div style="margin-bottom:12px">
+          <label class="lbl" id="mcc-rep-msg-lbl">Descripción de la anomalía / mensaje</label>
+          <textarea class="fi" id="mcc-rep-msg" rows="3" placeholder="Describe detalladamente..." style="resize:vertical;font-size:12px"></textarea>
+        </div>
+
+        <!-- Foto -->
+        <div style="margin-bottom:16px">
+          <label class="lbl">📷 Foto de evidencia (opcional)</label>
+          <input type="file" id="mcc-rep-photo-input" accept="image/*" capture="environment" style="display:none" onchange="mccRepPhotoSelected(this)">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <button type="button" onclick="document.getElementById('mcc-rep-photo-input').click()" style="display:flex;align-items:center;gap:6px;padding:8px 16px;border:2px dashed #c4b5fd;border-radius:8px;background:#f5f3ff;color:#6d28d9;font-size:12px;font-weight:600;cursor:pointer">
+              📷 Tomar / adjuntar foto
+            </button>
+            <div id="mcc-rep-photo-preview" style="display:none;position:relative">
+              <img id="mcc-rep-photo-thumb" style="width:64px;height:64px;object-fit:cover;border-radius:8px;border:2px solid #c4b5fd">
+              <button onclick="mccRepPhotoRemove()" style="position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:50%;background:#dc2626;color:#fff;border:none;font-size:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0">✕</button>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:8px">
+          <button onclick="mccToggleReportForm()" class="btn btn-gray" style="flex:1;justify-content:center">✕ Cancelar</button>
+          <button onclick="mccSubmitReport()" class="btn btn-blue" id="mcc-rep-submit-btn" style="flex:2;justify-content:center;background:#6d28d9;font-size:13px">📤 Enviar reporte</button>
+        </div>
+        <div id="mcc-rep-err" style="font-size:11px;color:#dc2626;margin-top:8px;min-height:16px;text-align:center"></div>
+      </div>
+    </div>
+
+    <!-- Station cards grid -->
+    <div id="mcc-stations-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:12px;margin-bottom:20px"></div>
+
+    <!-- Pilot messages -->
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+        <div class="card-title" style="margin:0">📡 Mensajes de Pilotos y Anomalías</div>
+        <span id="mcc-pilot-count" style="background:#dbeafe;color:#1e40af;font-size:11px;font-weight:700;padding:3px 12px;border-radius:20px">0 pendientes</span>
+      </div>
+      <div id="mcc-pilot-messages"></div>
+    </div>
+  </div>
+
+  <!-- VIEW CATÁLOGO DE TAREAS -->
+  <div class="view" id="VIEW-catalog">
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+        <div class="card-title" style="margin:0">📚 Catálogo de tareas (Task Library)</div>
+        <span id="catalog-count" style="font-size:11px;color:#64748b"></span>
+      </div>
+      <!-- Add new task -->
+      <div id="catalog-add-wrap" style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:10px;padding:12px 14px;margin-bottom:12px">
+        <div style="font-size:11px;font-weight:700;color:#166534;margin-bottom:8px">➕ Agregar tarea al catálogo</div>
+        <div class="fgrid">
+          <div>
+            <label class="lbl">Código</label>
+            <input class="fi" id="catalog-new-code" type="text" placeholder="Ej: B73X-34-00-CAT-001" style="font-family:monospace;text-transform:uppercase" oninput="this.value=this.value.toUpperCase()">
+          </div>
+          <div>
+            <label class="lbl">Nombre de la tarea</label>
+            <input class="fi" id="catalog-new-name" type="text" placeholder="Descripción de la tarea" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()">
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px">
+          <button onclick="addCatalogTask()" class="btn btn-green">+ Agregar al catálogo</button>
+          <button onclick="document.getElementById('catalog-excel-input').click()" class="btn btn-blue">📥 Importar desde Excel</button>
+          <input type="file" id="catalog-excel-input" accept=".xlsx,.xls" style="display:none" onchange="importCatalogExcel(this)">
+          <span style="font-size:10px;color:#64748b">Columnas requeridas: <b>CODIGO</b> · <b>NOMBRE</b> · <b>TIEMPO_HORAS</b> (opcional)</span>
+        </div>
+      </div>
+      <!-- Preview importación Excel -->
+      <div id="catalog-import-preview" style="display:none;background:#eff6ff;border:1.5px solid #93c5fd;border-radius:10px;padding:12px 14px;margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <div style="font-size:11px;font-weight:700;color:#1e40af">📋 Vista previa — <span id="catalog-import-count"></span></div>
+          <div style="display:flex;gap:6px">
+            <button onclick="confirmCatalogImport()" class="btn btn-green" style="font-size:11px;padding:4px 10px">✅ Importar todo</button>
+            <button onclick="document.getElementById('catalog-import-preview').style.display='none'" class="btn" style="font-size:11px;padding:4px 10px;background:#e2e8f0;color:#374151">✕ Cancelar</button>
+          </div>
+        </div>
+        <div id="catalog-import-table" style="max-height:260px;overflow-y:auto;border:1px solid #bfdbfe;border-radius:6px;font-size:11px"></div>
+        <div id="catalog-import-warn" style="font-size:10px;color:#b45309;margin-top:6px"></div>
+      </div>
+      <!-- Search -->
+      <input class="fi" id="catalog-search" type="text" placeholder="🔍 Buscar por código o nombre..." oninput="renderTaskCatalog()" style="margin-bottom:10px">
+      <!-- List -->
+      <div id="task-catalog-list" style="max-height:500px;overflow-y:auto;border:1px solid #e2e8f0;border-radius:8px"></div>
+    </div>
+  </div>
+
+  <!-- VIEW DASHBOARD -->
+  <div class="view" id="VIEW-dashboard">
+    <div class="db-wrap">
+      <!-- Filtros -->
+      <div class="db-filter-bar">
+        <span class="db-lbl">Período:</span>
+        <input type="date" class="db-inp" id="db-from" onchange="renderDashboard()">
+        <span style="color:#475569;font-size:11px">→</span>
+        <input type="date" class="db-inp" id="db-to" onchange="renderDashboard()">
+        <button class="db-btn db-btn-gray" onclick="dbSetRange(7)">7d</button>
+        <button class="db-btn db-btn-gray" onclick="dbSetRange(30)">30d</button>
+        <button class="db-btn db-btn-gray" onclick="dbSetRange(90)">90d</button>
+        <span class="db-lbl" style="margin-left:8px">Aeronave:</span>
+        <select class="db-inp" id="db-ac-filter" onchange="renderDashboard()" style="min-width:140px">
+          <option value="">Todas</option>
+        </select>
+        <button class="db-btn db-btn-green" onclick="dbExportCSV()" style="margin-left:auto">⬇ CSV</button>
+        <span id="db-status" style="font-size:10px;color:#475569"></span>
+      </div>
+
+      <!-- KPIs -->
+      <div class="db-kpi-grid">
+        <div class="db-kpi blue"><div class="db-kpi-lbl">Total OTs</div><div class="db-kpi-val" id="db-kv1">—</div><div class="db-kpi-sub" id="db-kv1s">período</div></div>
+        <div class="db-kpi green"><div class="db-kpi-lbl">Aeronaves</div><div class="db-kpi-val" id="db-kv2">—</div><div class="db-kpi-sub">distintas</div></div>
+        <div class="db-kpi amber"><div class="db-kpi-lbl">H-Hombre</div><div class="db-kpi-val" id="db-kv3">—</div><div class="db-kpi-sub">horas trabajadas</div></div>
+        <div class="db-kpi purple"><div class="db-kpi-lbl">Técnicos</div><div class="db-kpi-val" id="db-kv4">—</div><div class="db-kpi-sub">en el roster</div></div>
+        <div class="db-kpi red"><div class="db-kpi-lbl">Pico demanda</div><div class="db-kpi-val" id="db-kv5">—</div><div class="db-kpi-sub">máx. simultáneo</div></div>
+        <div class="db-kpi cyan"><div class="db-kpi-lbl">Duración prom.</div><div class="db-kpi-val" id="db-kv6">—</div><div class="db-kpi-sub">min por OT</div></div>
+        <div class="db-kpi green"><div class="db-kpi-lbl">✅ Completadas</div><div class="db-kpi-val" id="db-kv7">—</div><div class="db-kpi-sub" id="db-kv7s">tareas plan.</div></div>
+        <div class="db-kpi red"><div class="db-kpi-lbl">🚫 No realizadas</div><div class="db-kpi-val" id="db-kv8">—</div><div class="db-kpi-sub" id="db-kv8s">tareas plan.</div></div>
+        <div class="db-kpi blue"><div class="db-kpi-lbl">📊 OTP Plan.</div><div class="db-kpi-val" id="db-kv9">—</div><div class="db-kpi-sub">efectividad tareas</div></div>
+      </div>
+
+      <!-- Gráficas fila 1 -->
+      <div class="db-charts-row col3">
+        <div class="db-chart-card">
+          <div class="db-chart-title">📅 OTs por día <span id="db-badge1" style="font-size:9px;background:rgba(59,130,246,.15);color:#93c5fd;padding:1px 7px;border-radius:20px;font-weight:600;text-transform:none;letter-spacing:0"></span></div>
+          <div style="position:relative;height:180px"><canvas id="db-chart-daily"></canvas></div>
+        </div>
+        <div class="db-chart-card">
+          <div class="db-chart-title">✈ Top aeronaves</div>
+          <div style="position:relative;height:180px"><canvas id="db-chart-ac"></canvas></div>
+        </div>
+        <div class="db-chart-card">
+          <div class="db-chart-title">👥 Técnicos por turno</div>
+          <div style="position:relative;height:180px"><canvas id="db-chart-shift"></canvas></div>
+        </div>
+      </div>
+
+      <!-- Gráficas fila 2 -->
+      <div class="db-charts-row col2">
+        <div class="db-chart-card">
+          <div class="db-chart-title">🔥 Mapa de calor — demanda promedio por hora</div>
+          <div class="db-heatmap" id="db-heatmap"></div>
+          <div style="display:flex;gap:8px;margin-top:8px;font-size:9px;color:#475569;align-items:center">
+            <span>Escala:</span>
+            <span style="display:flex;gap:3px;align-items:center"><span style="width:12px;height:7px;border-radius:2px;background:#1e3a5f;display:inline-block"></span>0</span>
+            <span style="display:flex;gap:3px;align-items:center"><span style="width:12px;height:7px;border-radius:2px;background:#1d4ed8;display:inline-block"></span>bajo</span>
+            <span style="display:flex;gap:3px;align-items:center"><span style="width:12px;height:7px;border-radius:2px;background:#f59e0b;display:inline-block"></span>medio</span>
+            <span style="display:flex;gap:3px;align-items:center"><span style="width:12px;height:7px;border-radius:2px;background:#dc2626;display:inline-block"></span>alto</span>
+          </div>
+        </div>
+        <div class="db-chart-card">
+          <div class="db-chart-title">🔧 Categorías del roster</div>
+          <div style="position:relative;height:190px"><canvas id="db-chart-roles"></canvas></div>
+        </div>
+      </div>
+
+      <!-- Tabla OTs -->
+      <div class="db-section">📋 Historial de OTs</div>
+      <div class="db-tbl-card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+          <span id="db-ot-count" style="font-size:10px;color:#475569"></span>
+          <input class="db-inp" id="db-tbl-search" placeholder="🔍 Buscar aeronave, WO..." oninput="dbRenderOTTable()" style="width:200px">
+        </div>
+        <div class="db-tbl-scroll db-tbl">
+          <table><thead><tr>
+            <th onclick="dbSortOT('taskDate')" style="cursor:pointer">Fecha ↕</th>
+            <th>Aeronave</th><th>WO</th><th>ETA</th><th>ETD</th>
+            <th>Inicio</th><th>Fin</th><th>Duración</th>
+            <th># Téc.</th><th>H-Hombre</th><th>Técnicos</th><th>Comentario</th>
+          </tr></thead>
+          <tbody id="db-ot-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Tareas por aeronave y comparación bases -->
+      <div class="db-charts-row col2" style="margin-top:4px">
+        <div class="db-chart-card">
+          <div class="db-chart-title">✈ Tareas por aeronave <span style="font-size:9px;background:rgba(16,185,129,.15);color:#6ee7b7;padding:1px 7px;border-radius:20px;font-weight:600;text-transform:none">completadas vs no realizadas</span></div>
+          <div style="position:relative;height:200px"><canvas id="db-chart-tasks-ac"></canvas></div>
+        </div>
+        <div class="db-chart-card">
+          <div class="db-chart-title">🏢 Comparación entre bases — efectividad</div>
+          <div style="position:relative;height:200px"><canvas id="db-chart-bases"></canvas></div>
+        </div>
+      </div>
+
+      <!-- OTP Semanal -->
+      <div class="db-section" style="margin-bottom:16px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <div class="db-chart-title" style="font-size:14px;font-weight:800;color:#0f2a66">📈 OTP SEMANAL — Tendencia</div>
+          <button onclick="exportOTPExcel()" style="background:#166534;color:#fff;border:none;padding:5px 14px;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer">⬇ Exportar Excel</button>
+        </div>
+        <div style="position:relative;height:220px;background:#f8fafc;border-radius:10px;padding:10px">
+          <canvas id="db-chart-otp-weekly"></canvas>
+        </div>
+        <div style="margin-top:8px;font-size:10px;color:#64748b">
+          📊 Línea azul = OTP% por semana · Barras rojas = número de demoras · Meta: 85%
+        </div>
+      </div>
+
+      <!-- Tabla Roster -->
+      <div class="db-section">👥 Roster — utilización en el período</div>
+      <div class="db-tbl-card">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px" id="db-roster-summary"></div>
+        <div class="db-tbl-scroll db-tbl">
+          <table><thead><tr>
+            <th>#</th><th>Nombre</th><th>Categoría</th><th>Horas</th>
+            <th>Turno</th><th>OTs asignadas</th><th>H-Hombre</th><th>Utilización</th>
+          </tr></thead>
+          <tbody id="db-roster-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+
+
+
+
+  <!-- VIEW PLANIFICACIÓN -->
+  <div class="view" id="VIEW-plan">
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+        <div class="card-title">📌 Planificación de Tareas</div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <input class="fi" id="plan-filter-wo" type="text" placeholder="Filtrar por WO..." 
+            style="width:160px;padding:5px 8px;font-size:12px;font-family:monospace;text-transform:uppercase" 
+            oninput="this.value=this.value.toUpperCase();renderPlan()" 
+            title="Filtra por Work Order — solo muestra pendientes de esa WO">
+          <select class="fi" id="plan-filter-priority" style="width:130px;padding:5px 8px;font-size:12px" onchange="renderPlan()">
+            <option value="">Pendientes</option>
+            <option value="all">Todas</option>
+            <option value="P1">🔴 P1 Alta</option>
+            <option value="P2">🟡 P2 Media</option>
+            <option value="P3">🟢 P3 Baja</option>
+            <option value="DEF">⏳ Diferido</option>
+            <option value="done">✅ Completadas</option>
+          </select>
+          <button class="btn btn-blue" id="btn-add-plan" onclick="openPlanModal(null)" style="display:none">+ Nueva tarea</button>
+        </div>
+      </div>
+      <div id="plan-list"></div>
+    </div>
+  </div>
+
+
+  <!-- VIEW HORARIOS -->
+  <div class="view" id="VIEW-schedule">
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+        <div>
+          <div class="card-title">📅 Horario del Personal</div>
+          <div style="font-size:11px;color:#64748b" id="schedule-subtitle">Roll de turnos mensual</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <input type="month" id="schedule-month" class="fi" style="width:160px;padding:5px 8px;font-size:12px" onchange="renderScheduleView()">
+          <select id="schedule-station" class="fi" style="width:110px;padding:5px 8px;font-size:12px" onchange="renderScheduleView()">
+          </select>
+          <button id="btn-upload-schedule" class="btn btn-blue" onclick="document.getElementById('schedule-file-input').click()" style="display:none">📤 Importar Excel</button>
+          <input type="file" id="schedule-file-input" accept=".xlsx,.xls" style="display:none" onchange="importScheduleExcel(this)">
+          <button id="btn-save-schedule" class="btn btn-blue" onclick="saveScheduleToFirestore()" style="display:none">💾 Guardar horario</button>
+        </div>
+      </div>
+      <!-- Leyenda + filtros -->
+      <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:12px">
+        <div style="display:flex;flex-wrap:wrap;gap:6px;font-size:10px;flex:1">
+          <span style="background:#dbeafe;color:#1e40af;padding:2px 8px;border-radius:10px;font-weight:600">A 05-14h</span>
+          <span style="background:#fef9c3;color:#92400e;padding:2px 8px;border-radius:10px;font-weight:600">B 13-22h</span>
+          <span style="background:#f3e8ff;color:#6b21a8;padding:2px 8px;border-radius:10px;font-weight:600">C 21-06h</span>
+          <span style="background:#dcfce7;color:#166534;padding:2px 8px;border-radius:10px;font-weight:600">ADM 08-17h</span>
+          <span style="background:#f1f5f9;color:#64748b;padding:2px 8px;border-radius:10px">L Libre</span>
+          <span style="background:#fee2e2;color:#dc2626;padding:2px 8px;border-radius:10px">V Vacaciones</span>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <select id="schedule-filter-shift" class="fi" style="width:140px;padding:5px 8px;font-size:12px" onchange="renderScheduleView()">
+            <option value="">Todos los turnos</option>
+            <option value="A">Turno A (05-14h)</option>
+            <option value="B">Turno B (13-22h)</option>
+            <option value="C">Turno C (21-06h)</option>
+            <option value="ADM">ADM (08-17h)</option>
+          </select>
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#0f2a66;cursor:pointer;background:#eff6ff;padding:5px 12px;border-radius:8px;border:1px solid #bfdbfe">
+            <input type="checkbox" id="schedule-filter-today" onchange="renderScheduleView()" style="accent-color:#0f2a66">
+            Solo en turno hoy
+          </label>
+          <input type="date" id="schedule-filter-date" class="fi" style="width:150px;padding:5px 8px;font-size:12px" onchange="document.getElementById('schedule-filter-today').checked=false;renderScheduleView()" title="Ver quién está en turno en una fecha específica">
+        </div>
+      </div>
+      <div id="schedule-table-wrap" style="overflow-x:auto">
+        <div id="schedule-loading" style="text-align:center;padding:40px;color:#94a3b8;font-size:12px">Selecciona mes y base para ver el horario</div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- VIEW VUELOS -->
+  <div class="view" id="VIEW-flights">
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+        <div>
+          <div class="card-title">✈️ Programación de Vuelos</div>
+          <div style="font-size:11px;color:#64748b" id="flights-subtitle">Programa de vuelos · Ground slots se generan automáticamente</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <select id="flights-station-filter" class="fi" style="width:110px;padding:5px 8px;font-size:12px" onchange="renderFlightsView()"></select>
+          <span id="btn-add-flight-wrap"></span>
+        </div>
+      </div>
+
+      <!-- ── Barra de herramientas de vuelos (solo superadmin) ── -->
+      <div id="flight-sync-bar" style="display:none;margin-bottom:12px">
+
+        <!-- Sección 1: Importar desde Excel -->
+        <div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:10px;padding:12px 14px;margin-bottom:8px">
+          <div style="font-size:11px;font-weight:700;color:#166534;margin-bottom:8px">📥 Importar itinerario desde Excel</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
+            <button onclick="document.getElementById('flights-excel-input').click()" class="btn btn-green">📋 Seleccionar Excel de vuelos</button>
+            <input type="file" id="flights-excel-input" accept=".xlsx,.xls" style="display:none" onchange="importFlightsExcel(this)">
+            <span style="font-size:10px;color:#64748b">Columnas: <b>VUELO · ORIGEN · DESTINO · ETA · ETD · MATRICULA · DIAS</b> (DIAS = días de la semana, opcional)</span>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <button onclick="document.getElementById('tail-excel-input').click()" class="btn" style="background:#7c3aed;color:#fff;font-size:11px;padding:5px 12px">🔗 Solo matrículas (VUELO+MATRICULA)</button>
+            <input type="file" id="tail-excel-input" accept=".xlsx,.xls" style="display:none" onchange="importTailAssignmentsExcel(this)">
+            <span id="tail-count-badge" style="font-size:10px;color:#6b7280;background:#f1f5f9;padding:3px 8px;border-radius:6px">Sin matrículas cargadas</span>
+          </div>
+        </div>
+
+        <!-- Sección 2: Sincronizar desde API (opcional) -->
+        <details style="background:#f0f9ff;border:1.5px solid #7dd3fc;border-radius:10px;padding:10px 14px">
+          <summary style="font-size:11px;font-weight:700;color:#0369a1;cursor:pointer">🌐 Sincronizar desde API (opcional)</summary>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px">
+            <div>
+              <label class="lbl" style="font-size:10px">Fecha</label>
+              <input type="date" id="api-sync-date" class="fi" style="width:145px;padding:5px 8px;font-size:12px">
+            </div>
+            <div style="display:flex;flex-direction:column;gap:4px">
+              <label class="lbl" style="font-size:10px">Base activa</label>
+              <span id="api-sync-station-lbl" style="font-size:13px;font-weight:700;color:#0f2a66;padding:5px 12px;background:#e0f2fe;border-radius:6px;display:inline-block">—</span>
+            </div>
+            <div style="margin-top:16px">
+              <button id="btn-api-sync" onclick="syncFlightsFromAPI()" class="btn btn-blue">🔄 Sincronizar</button>
+            </div>
+          </div>
+          <div style="font-size:10px;color:#0369a1;margin-top:8px;padding:6px 10px;background:#e0f2fe;border-radius:6px">
+            ℹ️ Requiere <code>aviationApiKey</code> en <b>config.js</b> — el plan gratuito de AviationStack tiene limitaciones.
+          </div>
+        </details>
+      </div>
+
+      <!-- ── Preview: importación Excel de vuelos ── -->
+      <div id="flights-excel-preview" style="display:none;background:#f0fdf4;border:1.5px solid #86efac;border-radius:10px;padding:12px 14px;margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <div style="font-size:11px;font-weight:700;color:#166534">✈️ Vista previa — <span id="flights-excel-count"></span></div>
+          <div style="display:flex;gap:6px">
+            <button onclick="confirmFlightsExcelImport()" class="btn btn-green" style="font-size:11px;padding:4px 10px">✅ Importar vuelos</button>
+            <button onclick="document.getElementById('flights-excel-preview').style.display='none'" class="btn" style="font-size:11px;padding:4px 10px;background:#e2e8f0;color:#374151">✕ Cancelar</button>
+          </div>
+        </div>
+        <div id="flights-excel-table" style="max-height:300px;overflow-y:auto;border:1px solid #bbf7d0;border-radius:6px;font-size:10px"></div>
+        <div id="flights-excel-warn" style="font-size:10px;color:#b45309;margin-top:6px"></div>
+      </div>
+
+      <!-- ── Preview: importación de matrículas ── -->
+      <div id="tail-import-preview" style="display:none;background:#faf5ff;border:1.5px solid #c4b5fd;border-radius:10px;padding:12px 14px;margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <div style="font-size:11px;font-weight:700;color:#6d28d9">📋 Matrículas a cargar — <span id="tail-import-count"></span></div>
+          <div style="display:flex;gap:6px">
+            <button onclick="confirmTailImport()" class="btn btn-green" style="font-size:11px;padding:4px 10px">✅ Confirmar</button>
+            <button onclick="document.getElementById('tail-import-preview').style.display='none'" class="btn" style="font-size:11px;padding:4px 10px;background:#e2e8f0;color:#374151">✕ Cancelar</button>
+          </div>
+        </div>
+        <div id="tail-import-table" style="max-height:240px;overflow-y:auto;border:1px solid #ddd6fe;border-radius:6px"></div>
+      </div>
+
+      <!-- ── Preview: vuelos desde API ── -->
+      <div id="flight-api-preview" style="display:none;background:#eff6ff;border:1.5px solid #93c5fd;border-radius:10px;padding:12px 14px;margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <div style="font-size:11px;font-weight:700;color:#1e40af">✈️ Vuelos encontrados — <span id="flight-api-count"></span></div>
+          <div style="display:flex;gap:6px">
+            <button onclick="confirmFlightAPISync()" class="btn btn-green" style="font-size:11px;padding:4px 10px">✅ Guardar vuelos</button>
+            <button onclick="document.getElementById('flight-api-preview').style.display='none'" class="btn" style="font-size:11px;padding:4px 10px;background:#e2e8f0;color:#374151">✕ Cancelar</button>
+          </div>
+        </div>
+        <div style="font-size:10px;color:#b45309;background:#fef9c3;padding:5px 10px;border-radius:6px;margin-bottom:8px">
+          ⚠️ Los vuelos <b>sin matrícula</b> (fondo amarillo) se guardarán igual — podrás asignarla manualmente después. Sube el Excel de matrículas primero para pre-asignarlas.
+        </div>
+        <div id="flight-api-table" style="max-height:300px;overflow-y:auto;border:1px solid #bfdbfe;border-radius:6px"></div>
+      </div>
+
+      <div id="flights-list"></div>
+    </div>
+  </div>
+
+</div><!-- /app -->
+
+<!-- MODAL OT -->
+<div class="overlay" id="modal-ot">
+  <div class="modal">
+    <div class="mhdr">
+      <div class="mtitle" id="modal-title">Nueva orden de trabajo</div>
+      <button class="mclose" onclick="closeModal()">✕</button>
+    </div>
+    <div class="fgrid">
+      <div><label class="lbl">Matrícula</label>
+        <select class="fi" id="fm-ac" onchange="syncPlanTasks();autoFillFlightFromAC(this.value)">
+          <option value="">— Seleccionar —</option>
+        </select>
+      </div>
+      <div style="grid-column:1/-1">
+        <label class="lbl">Órdenes de trabajo (WO)</label>
+        <div style="display:flex;flex-wrap:wrap;gap:5px;min-height:28px;margin-bottom:6px;align-items:center" id="fm-wo-tags"></div>
+        <div style="display:flex;gap:6px">
+          <input class="fi" id="fm-wo-input" type="text" placeholder="Agregar WO (ej: WO-4827) · Enter para agregar"
+            style="flex:1;text-transform:uppercase"
+            oninput="this.value=this.value.toUpperCase()"
+            onkeydown="if(event.key==='Enter'||event.key===','){event.preventDefault();addWOTag();}">
+          <button type="button" class="btn btn-blue" onclick="addWOTag()" style="padding:5px 14px;font-size:12px;white-space:nowrap">+ WO</button>
+        </div>
+        <input type="hidden" id="fm-wo" value="">
+      </div>
+    </div>
+    <!-- AOG toggle -->
+    <div style="display:flex;align-items:center;gap:10px;background:#fff5f5;border:1.5px solid #fca5a5;border-radius:10px;padding:10px 14px;margin-bottom:8px">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;font-weight:700;color:#b91c1c">
+        <input type="checkbox" id="fm-aog" style="width:18px;height:18px;accent-color:#dc2626">
+        🚨 AOG — Aircraft on Ground (Fuera de servicio)
+      </label>
+      <span style="font-size:10px;color:#94a3b8;margin-left:auto">La barra ámbar cambia a rojo</span>
+    </div>
+    <!-- Tareas de planificación vinculadas -->
+    <div style="background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:10px;padding:12px 14px;margin-bottom:8px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;flex-wrap:wrap;gap:6px">
+        <div style="font-size:11px;font-weight:700;color:#1e40af">📌 Tareas de planificación (WO)</div>
+        <button onclick="applyPlanHours()" class="btn btn-blue" style="padding:5px 14px;font-size:11px;font-weight:600">↳ Aplicar horas al mantenimiento</button>
+      </div>
+      <div id="fm-plan-tasks-wrap" style="display:none">
+        <div id="fm-plan-tasks-list" style="margin-bottom:6px;display:flex;flex-wrap:wrap;gap:4px"></div>
+        <div id="fm-plan-tasks-total" style="font-size:12px;font-weight:700;color:#1e40af;padding-top:6px;border-top:1px solid #bfdbfe"></div>
+      </div>
+      <div id="fm-plan-tasks-empty" style="font-size:11px;color:#64748b">
+        Selecciona aeronave y escribe el WO para ver tareas vinculadas
+      </div>
+    </div>
+
+    <!-- Información de vuelo -->
+    <div class="gbox" style="background:#f0fdf4;border-color:#86efac;margin-bottom:8px">
+      <div class="glbl" style="color:#166534">🛫 Información de vuelo</div>
+      <div class="fgrid" style="margin-bottom:6px">
+        <div>
+          <label class="lbl">Vuelo de llegada</label>
+          <input class="fi" id="fm-arr-flt" type="text" placeholder="ej: DL8403" style="text-transform:uppercase;font-family:monospace" oninput="this.value=this.value.toUpperCase()" onblur="autoFillFlightTimes(this.value,'arr')">
+        </div>
+        <div>
+          <label class="lbl">Origen</label>
+          <input class="fi" id="fm-arr-origin" type="text" placeholder="ej: MIA" style="text-transform:uppercase;font-family:monospace;text-align:center" maxlength="4" oninput="this.value=this.value.toUpperCase()">
+        </div>
+      </div>
+      <div class="fgrid">
+        <div>
+          <label class="lbl">Vuelo de salida</label>
+          <input class="fi" id="fm-dep-flt" type="text" placeholder="ej: DL8404" style="text-transform:uppercase;font-family:monospace" oninput="this.value=this.value.toUpperCase()" onblur="autoFillFlightTimes(this.value,'dep')">
+        </div>
+        <div>
+          <label class="lbl">Destino</label>
+          <input class="fi" id="fm-dep-dest" type="text" placeholder="ej: SDQ" style="text-transform:uppercase;font-family:monospace;text-align:center" maxlength="4" oninput="this.value=this.value.toUpperCase()">
+        </div>
+      </div>
+    </div>
+
+    <div class="gbox">
+      <div class="glbl">🟡 Ventana de suelo (Ground Slot)</div>
+      <div class="fgrid" style="margin-bottom:6px">
+        <div>
+          <label class="lbl">Fecha ETA</label>
+          <input class="fi" id="fm-eta-date" type="date" oninput="syncETDDate()">
+        </div>
+        <div>
+          <label class="lbl">Hora ETA</label>
+          <input class="fi" id="fm-eta" type="time" value="07:00" oninput="validateWindow()">
+        </div>
+      </div>
+      <div class="fgrid" style="margin-bottom:6px">
+        <div>
+          <label class="lbl">Fecha ETD</label>
+          <input class="fi" id="fm-etd-date" type="date" oninput="validateWindow()">
+        </div>
+        <div>
+          <label class="lbl">Hora ETD</label>
+          <input class="fi" id="fm-etd" type="time" value="14:00" oninput="validateWindow()">
+        </div>
+      </div>
+      <div id="fm-slot-preview" style="font-size:11px;margin-bottom:4px;min-height:16px"></div>
+    </div>
+    <!-- Mantenimiento — calculado automáticamente desde tareas de planificación -->
+    <div id="fm-manto-info" style="background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:10px;padding:10px 14px;margin-bottom:8px">
+      <div style="font-size:11px;font-weight:700;color:#1e40af;margin-bottom:6px">🔵 Mantenimiento — desde planificación</div>
+      <div class="fgrid" style="margin-bottom:0">
+        <div>
+          <label class="lbl">Hora de inicio</label>
+          <input class="fi" id="fm-st" type="time" value="08:00" oninput="validateWindow()">
+          <div style="font-size:10px;color:#64748b;margin-top:2px">Generalmente = ETA</div>
+        </div>
+        <div id="fm-manto-dur-display" style="display:flex;flex-direction:column;justify-content:center;padding-top:4px">
+          <div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Duración</div>
+          <div id="fm-dur-label" style="font-size:18px;font-weight:800;color:#1e40af">—</div>
+          <div style="font-size:10px;color:#64748b">Aplica tareas de planificación ↑</div>
+        </div>
+      </div>
+      <!-- Hidden inputs to preserve compatibility -->
+      <input type="hidden" id="fm-dh" value="2">
+      <input type="hidden" id="fm-dm" value="0">
+      <div id="fm-warn" style="font-size:11px;color:#b45309;margin-top:5px;min-height:14px"></div>
+    </div>
+    <div class="fg">
+      <label class="lbl">🔧 Técnicos de mantenimiento</label>
+      <select class="fi" id="fm-tsel" onchange="addFormTech(this)"><option value="">+ Añadir técnico</option></select>
+      <div class="tags" id="fm-tags"></div>
+      <div id="fm-dur" style="font-size:11px;color:#0f2a66;margin-top:5px;min-height:14px"></div>
+    </div>
+    <div class="gaseo-box">
+      <div style="font-size:10px;font-weight:600;color:#166534;text-transform:uppercase;margin-bottom:6px">⛽ Gaseo y Despacho</div>
+      <div class="fgrid" style="margin-bottom:0">
+        <div><label class="lbl">Gaseo</label><select class="fi" id="fm-gaseo" style="font-size:12px"><option value="">— Sin asignar —</option></select></div>
+        <div><label class="lbl">Despacho</label><select class="fi" id="fm-despacho" style="font-size:12px"><option value="">— Sin asignar —</option></select></div>
+      </div>
+    </div>
+    <div class="fg">
+      <label class="lbl">💬 Comentarios / Anomalías</label>
+      <textarea class="fi" id="fm-comments" rows="3" placeholder="Ej: Demora por FFD, MEL abierto..." style="resize:vertical;font-size:12px"></textarea>
+    </div>
+
+    <!-- OT FILE ATTACHMENTS -->
+    <div class="fg" id="ot-attach-wrap">
+      <label class="lbl">📎 Archivos adjuntos a esta OT</label>
+      <div style="font-size:10px;color:#64748b;margin-bottom:6px">
+        Adjunta la orden de trabajo, MEL, fotografías u otros documentos. Los técnicos podrán descargarlos directamente desde el Gantt.
+      </div>
+      <!-- Existing attachments preview -->
+      <div id="fm-attachments-list" class="ot-files" style="margin-bottom:6px"></div>
+      <!-- Upload zone -->
+      <div class="ot-upload-zone" onclick="document.getElementById('fm-attach-input').click()">
+        <input type="file" id="fm-attach-input" multiple accept="application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,image/*,.pdf,.doc,.docx,.xls,.xlsx" onchange="handleOTAttach(this.files)">
+        <span id="fm-attach-status">📂 Clic o arrastra archivos de la OT (PDF, Word, imágenes)</span>
+      </div>
+      <!-- Upload progress -->
+      <div id="fm-attach-progress" style="display:none;margin-top:6px">
+        <div style="font-size:10px;color:#0f2a66;margin-bottom:3px" id="fm-attach-prog-lbl">Subiendo...</div>
+        <div style="width:100%;height:4px;background:#e2e8f0;border-radius:2px;overflow:hidden">
+          <div id="fm-attach-prog-fill" style="height:100%;background:#0f2a66;border-radius:2px;transition:width .2s;width:0%"></div>
+        </div>
+      </div>
+      <!-- Pending files tags -->
+      <div id="fm-attach-tags" class="ot-files" style="margin-top:6px"></div>
+    </div>
+
+    <button class="submibtn" id="modal-submit-btn" onclick="submitOT()">☁️ Confirmar y guardar</button>
+  </div>
+</div>
+
+
+
+<div class="toast" id="toast-el"></div>
+
+
+
+
+
+<script src="sw-unregister.js"></script>
+
+
+<!-- MODAL PLANIFICACIÓN -->
+<div class="overlay" id="modal-plan">
+  <div class="modal" style="max-width:500px;max-height:90vh;overflow-y:auto">
+    <div class="mhdr">
+      <div class="mtitle" id="plan-modal-title">📌 Nueva tarea</div>
+      <button class="mclose" onclick="closePlanModal()">✕</button>
+    </div>
+    <!-- Aeronave + WO -->
+    <div class="fgrid">
+      <div>
+        <label class="lbl">Aeronave *</label>
+        <select class="fi" id="pm-ac" onchange="filterPlanWO()">
+          <option value="">— Seleccionar —</option>
+        </select>
+      </div>
+      <div>
+        <label class="lbl">Work Order (WO) *</label>
+        <input class="fi" id="pm-wo" type="text" placeholder="Ej: WO-4827" style="font-family:monospace;text-transform:uppercase" oninput="this.value=this.value.toUpperCase()">
+        <div id="pm-wo-hint" style="font-size:10px;color:#0f2a66;margin-top:3px;min-height:14px"></div>
+      </div>
+    </div>
+    <!-- Código + Prioridad -->
+    <div class="fgrid">
+      <div>
+        <label class="lbl">Código de tarea *</label>
+        <input class="fi" id="pm-code" type="text" placeholder="Ej: B73X-34-00-CAT-001"
+          style="font-family:monospace;text-transform:uppercase"
+          oninput="this.value=this.value.toUpperCase();autoFillTaskName(this.value)"
+          onchange="autoFillTaskName(this.value)"
+          list="task-catalog-datalist" autocomplete="off">
+        <datalist id="task-catalog-datalist"></datalist>
+        <div id="pm-code-hint" style="font-size:10px;color:#166534;margin-top:2px;min-height:14px"></div>
+      </div>
+      <div>
+        <label class="lbl">Prioridad *</label>
+        <select class="fi" id="pm-priority" onchange="toggleDeferredFields()">
+          <option value="P1">🔴 P1 — Alta</option>
+          <option value="P2" selected>🟡 P2 — Media</option>
+          <option value="P3">🟢 P3 — Baja</option>
+          <option value="DEF">⏳ Diferido</option>
+        </select>
+      </div>
+    </div>
+    <!-- Nombre -->
+    <div class="fg">
+      <label class="lbl">Nombre / Descripción *</label>
+      <input class="fi" id="pm-name" type="text" placeholder="Ej: Inspección de tren de aterrizaje principal" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()">
+    </div>
+    <!-- Diferido -->
+    <div id="pm-deferred-wrap" style="display:none;background:#fffbeb;border:1.5px solid #fde68a;border-radius:10px;padding:12px 14px;margin-bottom:8px">
+      <div style="font-size:11px;font-weight:700;color:#92400e;margin-bottom:8px">⏳ Diferido (MEL/CDL)</div>
+      <div class="fgrid">
+        <div><label class="lbl">Fecha apertura</label><input class="fi" id="pm-def-open" type="date" oninput="calcDeferredDays()"></div>
+        <div><label class="lbl">Plazo (días)</label><input class="fi" id="pm-def-days" type="number" min="1" max="365" value="10" oninput="calcDeferredDays()"></div>
+      </div>
+      <div id="pm-def-status" style="font-size:12px;font-weight:600;margin-top:8px;padding:6px 10px;border-radius:8px;text-align:center"></div>
+    </div>
+    <!-- Fecha y hora límite -->
+    <div class="fgrid">
+      <div><label class="lbl">Fecha límite</label><input class="fi" id="pm-due-date" type="date"></div>
+      <div><label class="lbl">Hora límite</label><input class="fi" id="pm-due-time" type="time" value="23:59"></div>
+    </div>
+    <!-- Tiempo estimado -->
+    <div class="fg">
+      <label class="lbl">Tiempo estimado</label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div><input class="fi" id="pm-est-h" type="number" min="0" max="72" value="1" placeholder="Horas"><div style="font-size:10px;color:#94a3b8;margin-top:2px;text-align:center">Horas</div></div>
+        <div><input class="fi" id="pm-est-m" type="number" min="0" max="59" step="5" value="0" placeholder="Min"><div style="font-size:10px;color:#94a3b8;margin-top:2px;text-align:center">Minutos</div></div>
+      </div>
+    </div>
+    <!-- Técnico -->
+    <div class="fg">
+      <label class="lbl">Asignar a técnico</label>
+      <select class="fi" id="pm-tech"><option value="">— Sin asignar —</option></select>
+    </div>
+    <!-- Notas -->
+    <div class="fg">
+      <label class="lbl">Notas / Instrucciones</label>
+      <textarea class="fi" id="pm-notes" rows="2" placeholder="Referencias AMM, instrucciones adicionales..." style="resize:vertical"></textarea>
+    </div>
+    <!-- Completado (solo al editar) -->
+    <div id="pm-completion-wrap" style="display:none">
+      <div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:10px;padding:12px 14px;margin-bottom:8px">
+        <div style="font-size:11px;font-weight:700;color:#166534;margin-bottom:8px">✅ Marcar como completada</div>
+        <div class="fgrid" style="margin-bottom:0">
+          <div><label class="lbl">Realizado por</label><select class="fi" id="pm-done-by"><option value="">— Seleccionar —</option></select></div>
+          <div><label class="lbl">Hora</label><input class="fi" id="pm-done-time" type="time"></div>
+        </div>
+      </div>
+      <div style="background:#fff5f5;border:1.5px solid #fca5a5;border-radius:10px;padding:12px 14px;margin-bottom:8px">
+        <div style="font-size:11px;font-weight:700;color:#b91c1c;margin-bottom:8px">🚫 No realizada</div>
+        <textarea class="fi" id="pm-unassign-reason" rows="2" placeholder="Motivo de no realizacion..." style="resize:vertical"></textarea>
+      </div>
+    </div>
+    <button class="submibtn" onclick="submitPlan()" style="margin-top:4px">💾 Guardar tarea</button>
+  </div>
+</div>
+
+<!-- MODAL USUARIO -->
+<div class="overlay" id="modal-user">
+  <div class="modal" style="max-width:420px">
+    <div class="mhdr">
+      <div class="mtitle" id="user-modal-title">➕ Agregar usuario</div>
+      <button class="mclose" onclick="closeUserModal()">✕</button>
+    </div>
+    <div class="fg">
+      <label class="lbl">Nombre completo</label>
+      <input class="fi" id="um-name" type="text" placeholder="JUAN CARLOS PEREZ" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()">
+    </div>
+    <div class="fgrid">
+      <div>
+        <label class="lbl">Rol</label>
+        <select class="fi" id="um-role">
+          <option value="tech">👷 Técnico — Solo comentar y descargar</option>
+          <option value="supervisor">🔑 Supervisor — Crear OTs y roster</option>
+          <option value="admin">⚙️ Admin — Igual que supervisor</option>
+          <option value="mcc">🌐 MCC — Vista multi-base y reportes</option>
+        </select>
+      </div>
+      <div>
+        <label class="lbl">Base</label>
+        <select class="fi" id="um-station">
+          <option value="AMBAS">🌐 Todas las bases</option>
+        </select>
+      </div>
+    </div>
+    <div class="fg">
+      <label class="lbl">PIN de acceso (4–6 dígitos)</label>
+      <input class="fi" id="um-pin" type="text" inputmode="numeric" maxlength="6"
+        placeholder="Ej: 1234" style="letter-spacing:4px;font-size:20px;text-align:center">
+      <div style="font-size:10px;color:#64748b;margin-top:4px">El usuario necesita este PIN para ingresar. Compártelo de forma segura.</div>
+    </div>
+    <div class="fg">
+      <label class="lbl">Estado</label>
+      <select class="fi" id="um-active">
+        <option value="true">✅ Activo</option>
+        <option value="false">🚫 Desactivado</option>
+      </select>
+    </div>
+    <button class="submibtn" id="um-submit" onclick="submitUser()">💾 Guardar usuario</button>
+  </div>
+</div>
+
+<!-- MODAL ENTREGA -->
+<div class="overlay" id="modal-delivery">
+  <div class="modal" style="max-width:500px">
+    <div class="mhdr">
+      <div class="mtitle" id="delivery-modal-title">🔧 Entregar aeronave</div>
+      <button class="mclose" onclick="closeDeliveryModal()">✕</button>
+    </div>
+    <div id="delivery-ac-info" style="background:#f1f5f9;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:#374151"></div>
+    <div id="delivery-tasks-section" style="display:none">
+      <div style="font-size:11px;font-weight:700;color:#0f2a66;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">📌 Estado de tareas</div>
+      <div id="delivery-tasks-list"></div>
+      <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px 12px;margin-top:8px;font-size:11px;color:#92400e">
+        💡 Marca el estado de cada tarea antes de entregar la aeronave
+      </div>
+    </div>
+    <div id="delivery-no-tasks" style="display:none;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:11px;color:#166534">
+      ✅ No hay tareas de planificación pendientes para esta aeronave
+    </div>
+    <div id="delivery-reason-wrap" style="display:none;margin-top:8px">
+      <label class="lbl" id="delivery-reason-lbl">Motivo de no realizacion</label>
+      <textarea class="fi" id="delivery-reason-input" rows="2" placeholder="Ej: Falta de repuesto, personal insuficiente..." style="resize:vertical;margin-top:4px"></textarea>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:16px">
+      <button onclick="closeDeliveryModal()" class="btn" style="flex:1;justify-content:center;background:#f1f5f9;border-color:#e2e8f0">Cancelar</button>
+      <button onclick="confirmDelivery()" id="delivery-confirm-btn" class="submibtn" style="flex:2">✅ Confirmar entrega</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL AUTO-ASIGNAR -->
+<div class="overlay" id="modal-auto">
+  <div class="modal" style="max-width:640px">
+    <div class="mhdr">
+      <div class="mtitle">🤖 Auto-asignación de técnicos</div>
+      <button class="mclose" onclick="closeAutoModal()">✕</button>
+    </div>
+
+    <!-- PASO 1: Seleccionar técnicos disponibles -->
+    <div id="auto-step1">
+      <div style="background:#f5f3ff;border:1px solid #c4b5fd;border-radius:8px;padding:9px 12px;margin-bottom:12px;font-size:11px;color:#5b21b6">
+        💡 Selecciona los técnicos que están en turno hoy. La app asignará automáticamente el personal a cada OT del día.
+      </div>
+      <div style="margin-bottom:10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <span style="font-size:10px;font-weight:600;color:#64748b;text-transform:uppercase">Filtrar turno:</span>
+        <button class="btn btn-gray" style="font-size:11px;padding:4px 10px" onclick="autoFilterShift('05:00–14:00')">🌅 Mañana</button>
+        <button class="btn btn-gray" style="font-size:11px;padding:4px 10px" onclick="autoFilterShift('13:00–22:00')">🌇 Tarde</button>
+        <button class="btn btn-gray" style="font-size:11px;padding:4px 10px" onclick="autoFilterShift('21:00–05:00')">🌙 Noche</button>
+        <button class="btn btn-gray" style="font-size:11px;padding:4px 10px" onclick="autoSelectAll(true)">✓ Todos</button>
+        <button class="btn btn-gray" style="font-size:11px;padding:4px 10px" onclick="autoSelectAll(false)">✕ Ninguno</button>
+      </div>
+      <div id="auto-tech-list" style="max-height:340px;overflow-y:auto;border:1px solid #e2e8f0;border-radius:10px;padding:6px"></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;flex-wrap:wrap;gap:8px">
+        <span id="auto-sel-count" style="font-size:11px;color:#64748b"></span>
+        <button class="submibtn" style="width:auto;padding:10px 24px" onclick="calcAutoAssign()">Calcular asignaciones →</button>
+      </div>
+    </div>
+
+    <!-- PASO 2: Preview de asignaciones -->
+    <div id="auto-step2" style="display:none">
+      <div id="auto-preview-wrap" style="max-height:420px;overflow-y:auto"></div>
+      <div style="display:flex;gap:8px;margin-top:12px;justify-content:space-between;flex-wrap:wrap">
+        <button class="btn btn-gray" onclick="document.getElementById('auto-step1').style.display='block';document.getElementById('auto-step2').style.display='none'">← Ajustar selección</button>
+        <button class="submibtn" style="width:auto;padding:10px 28px" id="auto-apply-btn" onclick="applyAutoAssign()">✅ Guardar asignaciones</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+<script src="auto-assign.js"></script>
+<script src="dashboard.js"></script>
+
+<!-- MODAL UPGRADE ─────────────────────────────────────────── -->
+<div id="modal-upgrade" onclick="if(event.target===this)closeUpgradeModal()"
+     style="display:none;position:fixed;inset:0;z-index:1001;background:rgba(0,0,0,.55);backdrop-filter:blur(3px);align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:16px;padding:28px 24px;max-width:360px;width:92%;box-shadow:0 24px 64px rgba(0,0,0,.25);position:relative">
+    <button onclick="closeUpgradeModal()" style="position:absolute;top:12px;right:14px;background:none;border:none;font-size:20px;color:#94a3b8;cursor:pointer;line-height:1">×</button>
+    <div style="text-align:center;margin-bottom:18px">
+      <div style="font-size:40px;margin-bottom:8px">🔒</div>
+      <h3 style="font-size:16px;font-weight:800;color:#0f2a66;margin:0 0 6px">Función no disponible</h3>
+      <p style="font-size:12px;color:#64748b;margin:0">
+        <strong id="upgrade-feature-name" style="color:#1e293b"></strong>
+        no está incluida en tu plan actual
+        (<span id="upgrade-current-plan" style="font-weight:700"></span>).
+      </p>
+    </div>
+    <div style="background:#f0f9ff;border:1.5px solid #bfdbfe;border-radius:10px;padding:14px 16px;margin-bottom:18px;font-size:12px">
+      <div style="font-weight:700;color:#1e40af;margin-bottom:10px">Para desbloquear esta función necesitas el plan <span id="upgrade-required-plan"></span>:</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px">
+        <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:8px;text-align:center">
+          <div style="font-size:13px;font-weight:800;color:#166534">🆓 Gratis</div>
+          <div style="font-size:10px;color:#64748b;margin-top:4px">1 base · 5 A/C · Gantt</div>
+        </div>
+        <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:8px;text-align:center">
+          <div style="font-size:13px;font-weight:800;color:#1e40af">⭐ Básico</div>
+          <div style="font-size:10px;color:#64748b;margin-top:4px">2 bases · 15 A/C · Sin MCC</div>
+        </div>
+        <div style="background:#f5f3ff;border:1px solid #c4b5fd;border-radius:8px;padding:8px;text-align:center">
+          <div style="font-size:13px;font-weight:800;color:#6d28d9">🚀 Pro</div>
+          <div style="font-size:10px;color:#64748b;margin-top:4px">Sin límites · MCC · Todo</div>
+        </div>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button onclick="closeUpgradeModal()" style="flex:1;padding:10px;border-radius:8px;border:1px solid #e2e8f0;background:#f8fafc;font-size:12px;font-weight:600;cursor:pointer;color:#64748b">Cerrar</button>
+      <a href="mailto:bgmconsultor@gmail.com?subject=Upgrade%20AirTech%20Assist" style="flex:2;padding:10px;border-radius:8px;background:linear-gradient(135deg,#0f2a66,#1d4ed8);color:#fff;font-size:12px;font-weight:700;text-align:center;text-decoration:none;cursor:pointer;display:flex;align-items:center;justify-content:center">Contactar para upgrade →</a>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL VUELO -->
+<div class="overlay" id="modal-flight">
+  <div class="modal" style="max-width:460px">
+    <div class="mhdr">
+      <div class="mtitle" id="flight-modal-title">✈️ Vuelo</div>
+      <button class="mclose" onclick="closeFlightModal()">✕</button>
+    </div>
+
+    <!-- LLEGADA -->
+    <div id="fl-section-arr" style="display:none">
+      <div style="background:#eff6ff;border-radius:10px;padding:14px;margin-bottom:14px">
+        <div style="font-size:12px;font-weight:800;color:#1e40af;margin-bottom:12px">🛬 VUELO DE LLEGADA A PUJ</div>
+        <div class="fgrid" style="margin-bottom:10px">
+          <div>
+            <label class="lbl">Número de vuelo *</label>
+            <input class="fi" id="fl-arr-num" type="text" placeholder="DM5100"
+              style="font-family:monospace;text-transform:uppercase;font-size:16px;font-weight:700"
+              oninput="this.value=this.value.toUpperCase()">
+          </div>
+          <div>
+            <label class="lbl">Origen *</label>
+            <input class="fi" id="fl-arr-origin" type="text" placeholder="COR"
+              style="font-family:monospace;text-transform:uppercase;text-align:center;font-size:18px;font-weight:800"
+              oninput="this.value=this.value.toUpperCase()">
+          </div>
+        </div>
+        <div>
+          <label class="lbl">Hora ETA *</label>
+          <input class="fi" id="fl-arr-eta" type="time" style="max-width:140px;font-size:16px;font-weight:700">
+        </div>
+      </div>
+    </div>
+
+    <!-- SALIDA -->
+    <div id="fl-section-dep" style="display:none">
+      <div style="background:#f0fdf4;border-radius:10px;padding:14px;margin-bottom:14px">
+        <div style="font-size:12px;font-weight:800;color:#166534;margin-bottom:12px">🛫 VUELO DE SALIDA DE PUJ</div>
+        <div class="fgrid" style="margin-bottom:10px">
+          <div>
+            <label class="lbl">Número de vuelo *</label>
+            <input class="fi" id="fl-dep-num" type="text" placeholder="DM5101"
+              style="font-family:monospace;text-transform:uppercase;font-size:16px;font-weight:700"
+              oninput="this.value=this.value.toUpperCase()">
+          </div>
+          <div>
+            <label class="lbl">Destino *</label>
+            <input class="fi" id="fl-dep-dest" type="text" placeholder="MIA"
+              style="font-family:monospace;text-transform:uppercase;text-align:center;font-size:18px;font-weight:800"
+              oninput="this.value=this.value.toUpperCase()">
+          </div>
+        </div>
+        <div>
+          <label class="lbl">Hora ETD *</label>
+          <input class="fi" id="fl-dep-etd" type="time" style="max-width:140px;font-size:16px;font-weight:700">
+        </div>
+      </div>
+    </div>
+
+    <!-- DÍAS (shared) -->
+    <div style="margin-bottom:16px">
+      <label class="lbl">Días que opera</label>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px" id="fl-days-btns">
+        <button type="button" class="day-btn" data-day="1" onclick="toggleFlDay(this)">Lun</button>
+        <button type="button" class="day-btn" data-day="2" onclick="toggleFlDay(this)">Mar</button>
+        <button type="button" class="day-btn" data-day="3" onclick="toggleFlDay(this)">Mié</button>
+        <button type="button" class="day-btn" data-day="4" onclick="toggleFlDay(this)">Jue</button>
+        <button type="button" class="day-btn" data-day="5" onclick="toggleFlDay(this)">Vie</button>
+        <button type="button" class="day-btn" data-day="6" onclick="toggleFlDay(this)">Sáb</button>
+        <button type="button" class="day-btn" data-day="0" onclick="toggleFlDay(this)">Dom</button>
+      </div>
+    </div>
+
+    <div style="margin-bottom:16px">
+      <label class="lbl">Notas (opcional)</label>
+      <input class="fi" id="fl-notes" type="text" placeholder="Ej: Solo temporada alta">
+    </div>
+
+    <button class="btn btn-blue" style="width:100%;padding:12px;font-size:14px" onclick="submitFlight()">
+      💾 Guardar vuelo
+    </button>
+  </div>
+</div><!-- /modal-flight -->d>
+<meta charset="UTF-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AirTech Assist</title>
+<!-- v1778703254 -->
+<!-- Firebase Compat SDK (funciona sin módulos ES) -->
+
+<!-- MODAL VUELO -->
+<div class="overlay" id="modal-flight">
+  <div class="modal" style="max-width:520px">
+    <div class="mhdr">
+      <div class="mtitle" id="flight-modal-title">✈️ Nuevo vuelo</div>
+      <button class="mclose" onclick="closeFlightModal()">✕</button>
+    </div>
+
+    <!-- LLEGADA -->
+    <div style="background:#eff6ff;border-radius:10px;padding:14px;margin-bottom:12px">
+      <div style="font-size:11px;font-weight:800;color:#1e40af;margin-bottom:10px">🛬 LLEGADA A PUJ</div>
+      <div class="fgrid">
+        <div>
+          <label class="lbl">Vuelo llegada *</label>
+          <input class="fi" id="fl-arr-number" type="text" placeholder="DM5100"
+            style="font-family:monospace;text-transform:uppercase"
+            oninput="this.value=this.value.toUpperCase()">
+        </div>
+        <div>
+          <label class="lbl">Origen *</label>
+          <input class="fi" id="fl-origin" type="text" placeholder="COR"
+            style="font-family:monospace;text-transform:uppercase;text-align:center"
+            oninput="this.value=this.value.toUpperCase()">
+        </div>
+      </div>
+      <div style="margin-top:8px">
+        <label class="lbl">Hora ETA *</label>
+        <input class="fi" id="fl-eta" type="time" style="max-width:140px">
+      </div>
+    </div>
+
+    <!-- SALIDA -->
+    <div style="background:#f0fdf4;border-radius:10px;padding:14px;margin-bottom:12px">
+      <div style="font-size:11px;font-weight:800;color:#166534;margin-bottom:10px">🛫 SALIDA DE PUJ</div>
+      <div class="fgrid">
+        <div>
+          <label class="lbl">Vuelo salida *</label>
+          <input class="fi" id="fl-dep-number" type="text" placeholder="DM5101"
+            style="font-family:monospace;text-transform:uppercase"
+            oninput="this.value=this.value.toUpperCase()">
+        </div>
+        <div>
+          <label class="lbl">Destino *</label>
+          <input class="fi" id="fl-dest" type="text" placeholder="MIA"
+            style="font-family:monospace;text-transform:uppercase;text-align:center"
+            oninput="this.value=this.value.toUpperCase()">
+        </div>
+      </div>
+      <div style="margin-top:8px">
+        <label class="lbl">Hora ETD *</label>
+        <input class="fi" id="fl-etd" type="time" style="max-width:140px">
+      </div>
+    </div>
+
+    <!-- DÍAS -->
+    <div style="margin-bottom:16px">
+      <label class="lbl">Días que opera</label>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px" id="fl-days-btns">
+        <button type="button" class="day-btn" data-day="1" onclick="toggleFlDay(this)">Lun</button>
+        <button type="button" class="day-btn" data-day="2" onclick="toggleFlDay(this)">Mar</button>
+        <button type="button" class="day-btn" data-day="3" onclick="toggleFlDay(this)">Mié</button>
+        <button type="button" class="day-btn" data-day="4" onclick="toggleFlDay(this)">Jue</button>
+        <button type="button" class="day-btn" data-day="5" onclick="toggleFlDay(this)">Vie</button>
+        <button type="button" class="day-btn" data-day="6" onclick="toggleFlDay(this)">Sáb</button>
+        <button type="button" class="day-btn" data-day="0" onclick="toggleFlDay(this)">Dom</button>
+      </div>
+    </div>
+
+    <!-- NOTAS -->
+    <div style="margin-bottom:16px">
+      <label class="lbl">Notas (opcional)</label>
+      <input class="fi" id="fl-notes" type="text" placeholder="Ej: Solo temporada alta">
+    </div>
+
+    <button class="btn btn-blue" style="width:100%;padding:12px;font-size:14px" onclick="submitFlight()">
+      💾 Guardar vuelo
+    </button>
+  </div>>
