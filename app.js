@@ -580,12 +580,14 @@ function _loginSuccess(name,role){
   if(sb) sb.textContent=loginStation;
   const _st=stations.find(s=>s.code===loginStation);
   if(sw) sw.textContent=(_st?.flag||'🛫')+' '+loginStation;
-  // Cargar plan del cliente desde Firestore antes de aplicar restricciones
+  // Aplicar rol inmediatamente (sin plan aún) para mostrar tabs correctas
+  applyRole(); initPlanTab();
+  // Luego cargar plan del cliente y re-aplicar restricciones de plan
   FB.db.collection(AIRLINE_ID).doc('config').get().then(d=>{
     const planMap={'Gratis':'free','Básico':'basic','Pro':'pro','free':'free','basic':'basic','pro':'pro'};
     if(d.exists && d.data().plan) _activePlan = planMap[d.data().plan] || d.data().plan;
-    applyRole(); initPlanTab();
-  }).catch(()=>{ applyRole(); initPlanTab(); });
+    initPlanTab();
+  }).catch(()=>{});
   initSupabaseUI(); subscribeAll(); subscribeUsers(); renderGantt(); loadTaskCatalog(); loadAircraft(); loadFlights(window._station); loadTailAssignments(); loadShiftDefs();
   // Pre-load current month schedule for auto-assign
   const _now=new Date(); const _mkey=_now.getFullYear()+'-'+String(_now.getMonth()+1).padStart(2,'0'); loadSchedule(_mkey, activeStation());
