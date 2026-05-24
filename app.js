@@ -6152,6 +6152,47 @@ async function loadPlatformClients(){
   }
 }
 
+function showImportClient(){
+  const p=document.getElementById('import-client-panel');
+  if(p) p.style.display=p.style.display==='none'?'block':'none';
+}
+
+async function importExistingClient(){
+  const clientId=(document.getElementById('import-client-id')?.value||'').trim().toLowerCase();
+  const msg=document.getElementById('import-client-msg');
+  if(!clientId){ if(msg){msg.style.color='#dc2626';msg.textContent='Ingresa el código de empresa.';} return; }
+  if(msg){ msg.style.color='#64748b'; msg.textContent='Buscando...'; }
+
+  try{
+    // Leer config del cliente
+    const cfgDoc=await FB.db.collection(clientId).doc('config').get();
+    if(!cfgDoc.exists){ if(msg){msg.style.color='#dc2626';msg.textContent='No se encontró ese código de empresa.';} return; }
+    const cfg=cfgDoc.data();
+
+    // Leer primer usuario admin
+    const usersSnap=await FB.db.collection(clientId).doc('config').collection('users')
+      .where('role','==','superadmin').limit(1).get();
+    const adminUser=usersSnap.docs[0]?.data()||{};
+
+    // Escribir en directorio central
+    await FB.db.collection('platform').doc('clients').collection('list').doc(clientId).set({
+      clientId,
+      airlineName: cfg.airlineName||clientId,
+      plan: cfg.plan||'Gratis',
+      adminEmail: cfg.adminEmail||adminUser.email||'—',
+      adminName: adminUser.name||'—',
+      adminUid: cfg.adminUid||'',
+      active: true,
+      createdAt: cfg.createdAt||Date.now()
+    });
+
+    if(msg){ msg.style.color='#166534'; msg.textContent='✅ Cliente importado correctamente.'; }
+    setTimeout(()=>loadPlatformClients(), 800);
+  }catch(e){
+    if(msg){ msg.style.color='#dc2626'; msg.textContent='Error: '+e.message; }
+  }
+}
+
 async function updateClientPlan(clientId, plan, selectEl){
   if(!clientId||!plan) return;
   try{
