@@ -535,8 +535,8 @@ async function doLogin(){
       btn.textContent='Ingresar'; btn.disabled=false; return;
     }
     const pinHash=await sha256(cred);
-    const snap=await window.FB.USERS().where('active','==',true).get();
-    const users=snap.docs.map(d=>({id:d.id,...d.data()}));
+    const snap=await window.FB.USERS().get();
+    const users=snap.docs.map(d=>({id:d.id,...d.data()})).filter(u=>u.active!==false);
     // Soporta PIN hasheado (nuevo) y PIN texto plano (migración de usuarios existentes)
     const match=users.find(u=>{
       if(!u||!u.name) return false;  // skip docs with missing name
@@ -649,7 +649,8 @@ function doLogout(){
   // Force back to gantt tab before logout — prevents role leakage
   try{ switchTab('gantt'); }catch(_){}
   sessionStorage.removeItem('airtechassist_role');sessionStorage.removeItem('airtechassist_name');
-  sessionStorage.removeItem('airtechassist_station');
+  sessionStorage.removeItem('airtechassist_station');sessionStorage.removeItem('airtechassist_client');
+  setClientId(_cfg.airlineId||'airtechassist');
   currentRole=null;currentUserName='';
   document.getElementById('main-app').style.display='none';
   document.getElementById('login-screen').style.display='flex';
