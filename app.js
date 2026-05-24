@@ -582,10 +582,13 @@ function _loginSuccess(name,role){
   if(sw) sw.textContent=(_st?.flag||'🛫')+' '+loginStation;
   // Aplicar rol inmediatamente (sin plan aún) para mostrar tabs correctas
   applyRole(); initPlanTab();
-  // Luego cargar plan del cliente y re-aplicar restricciones de plan
+  // Cargar nombre de aerolínea y plan desde Firestore
   FB.db.collection(AIRLINE_ID).doc('config').get().then(d=>{
     const planMap={'Gratis':'free','Básico':'basic','Pro':'pro','free':'free','basic':'basic','pro':'pro'};
-    if(d.exists && d.data().plan) _activePlan = planMap[d.data().plan] || d.data().plan;
+    if(d.exists){
+      if(d.data().plan) _activePlan = planMap[d.data().plan] || d.data().plan;
+      if(d.data().airlineName) window._airlineName = d.data().airlineName;
+    }
     initPlanTab();
   }).catch(()=>{});
   initSupabaseUI(); subscribeAll(); subscribeUsers(); renderGantt(); loadTaskCatalog(); loadAircraft(); loadFlights(window._station); loadTailAssignments(); loadShiftDefs();
@@ -4542,7 +4545,8 @@ function renderMCCPilotMessages(){
       ?'<span style="background:#f0fdf4;color:#166534;font-size:9px;font-weight:700;padding:2px 8px;border-radius:10px">📡 PILOTO</span>'
       :'<span style="background:#fee2e2;color:#dc2626;font-size:9px;font-weight:700;padding:2px 8px;border-radius:10px">🔧 ANOMALÍA</span>';
     const reporterIcon=isPilot?'👨‍✈️':'👷';
-    const waText=encodeURIComponent(`${isPilot?'📡 AIRTECH ASSIST — Mensaje de Piloto':'🔧 AIRTECH ASSIST — Anomalía Técnica'}\n✈ ${r.ac||'—'} · ${r._st} · ${r.timeStr||'—'}\n${reporterIcon} ${r.reportedBy||'—'}:\n${r.message||'—'}`);
+    const _al=(window._airlineName||'AirTech Assist').toUpperCase();
+    const waText=encodeURIComponent(`${isPilot?`📡 ${_al} — Mensaje de Piloto`:`🔧 ${_al} — Anomalía Técnica`}\n✈ ${r.ac||'—'} · ${r._st} · ${r.timeStr||'—'}\n${reporterIcon} ${r.reportedBy||'—'}:\n${r.message||'—'}`);
     return `<div style="background:#f8fafc;border-radius:10px;padding:14px;margin-bottom:10px;border-left:4px solid ${borderCol}">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
         <span style="font-size:16px">${r._flag}</span>
@@ -4746,10 +4750,11 @@ async function generateDailyPDF(){
     // ── Encabezado ──
     doc.setFillColor(...NAVY); doc.rect(0,0,W,30,'F');
     doc.setTextColor(...WHITE);
+    const airlineLbl=(window._airlineName||'AirTech Assist').toUpperCase();
     doc.setFont('helvetica','bold'); doc.setFontSize(15);
-    doc.text('AIRTECH ASSIST — Reporte Ejecutivo Diario',M,13);
+    doc.text(`${airlineLbl} — Reporte Ejecutivo Diario`,M,13);
     doc.setFont('helvetica','normal'); doc.setFontSize(8.5);
-    doc.text(`Airtech Assist  ·  Base ${st}  ·  ${selectedDate}  ·  Generado: ${nowStr}`,M,21);
+    doc.text(`${window._airlineName||'AirTech Assist'}  ·  Base ${st}  ·  ${selectedDate}  ·  Generado: ${nowStr}`,M,21);
     doc.text(`Supervisado por: ${currentUserName||'—'}`,W-M,21,{align:'right'});
 
     let y=40;
@@ -4938,7 +4943,7 @@ async function generateDailyPDF(){
       doc.setPage(i);
       doc.setDrawColor(...LIGHT);doc.line(M,286,W-M,286);
       doc.setFontSize(7);doc.setTextColor(...GRAY);
-      doc.text('AirTech Assist — Ground Operations · Confidencial',M,291);
+      doc.text(`${window._airlineName||'AirTech Assist'} — Ground Operations · Confidencial`,M,291);
       doc.text(`Pág. ${i} de ${pages}`,W-M,291,{align:'right'});
     }
 
@@ -5921,7 +5926,7 @@ async function generateDailyReport(){
   doc.text('REPORTE OPERACIONAL DIARIO', margin, 12);
   doc.setFontSize(9);
   doc.setFont('helvetica','normal');
-  doc.text('AirTech Assist — Control de Mantenimiento', margin, 19);
+  doc.text(`${window._airlineName||'AirTech Assist'} — Control de Mantenimiento`, margin, 19);
   doc.text('Base: '+st+'   |   Fecha: '+dateFmt, margin, 25);
 
   // ── KPIs ──
@@ -6065,7 +6070,7 @@ async function generateDailyReport(){
   doc.setFont('helvetica','normal');
   doc.setFontSize(7);
   doc.setTextColor(255,255,255);
-  doc.text('AirTech Assist — Generado el '+new Date().toLocaleString('es-DO'), margin, pageH-3);
+  doc.text(`${window._airlineName||'AirTech Assist'} — Generado el `+new Date().toLocaleString('es-DO'), margin, pageH-3);
   doc.text('Confidencial — Solo para uso interno', W-margin, pageH-3, {align:'right'});
 
   // Save
