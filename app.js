@@ -6139,16 +6139,94 @@ async function loadPlatformClients(){
           </label>
         </td>
         <td style="padding:10px 12px">
-          <button onclick="navigator.clipboard.writeText('${url}');toast('✅ URL copiada')"
-            style="padding:5px 10px;background:#0f2a66;color:#fff;border:none;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer">
-            Copiar URL
-          </button>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <button onclick="navigator.clipboard.writeText('${url}');toast('✅ URL copiada')"
+              style="padding:5px 10px;background:#0f2a66;color:#fff;border:none;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer">
+              Copiar URL
+            </button>
+            <button onclick="exportClientData('${c.clientId}','${(c.airlineName||c.clientId).replace(/'/g,"\\'")}','${c.adminEmail||''}')"
+              style="padding:5px 10px;background:#f0fdf4;color:#166534;border:1px solid #86efac;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer">
+              Exportar datos
+            </button>
+          </div>
         </td>
       </tr>`;
     }).join('');
   }catch(e){
     tbody.innerHTML=`<tr><td colspan="6" style="text-align:center;padding:24px;color:#dc2626">Error: ${e.message}</td></tr>`;
     console.error('[Platform]',e);
+  }
+}
+
+async function exportClientData(clientId, airlineName, adminEmail){
+  toast('⏳ Preparando exportación de '+airlineName+'...');
+  try{
+    const wb = XLSX.utils.book_new();
+
+    const flatDoc = (doc) => {
+      const d = {id: doc.id, ...doc.data()};
+      Object.keys(d).forEach(k=>{
+        const v = d[k];
+        if(v && typeof v.toDate === 'function') d[k] = v.toDate().toLocaleString('es-DO');
+        else if(Array.isArray(v)) d[k] = v.join(', ');
+        else if(typeof v === 'object' && v !== null) d[k] = JSON.stringify(v);
+      });
+      return d;
+    };
+
+    const addSheet = (name, rows) => {
+      if(!rows.length) return;
+      const ws = XLSX.utils.json_to_sheet(rows);
+      XLSX.utils.book_append_sheet(wb, ws, name.substring(0,31));
+    };
+
+    // Usuarios
+    const usersSnap = await FB.db.collection(clientId).doc('config').collection('users').get();
+    const userRows = usersSnap.docs.map(flatDoc).map(r=>{ delete r.password; return r; });
+    addSheet('Usuarios', userRows);
+
+    // Estaciones y aeronaves
+    const stationsSnap = await FB.db.collection(clientId).doc('config').collection('stations').get();
+    const stationIds = stationsSnap.docs.map(d=>d.id);
+    addSheet('Estaciones', stationsSnap.docs.map(flatDoc));
+
+    const aircraftSnap = await FB.db.collection(clientId).doc('config').collection('aircraft').get();
+    addSheet('Aeronaves', aircraftSnap.docs.map(flatDoc));
+
+    // Colecciones por estación
+    const colls = ['reports','tasks','plans','flights','techs','schedules','history'];
+    const collNames = {reports:'Reportes',tasks:'Tareas',plans:'Planes',flights:'Vuelos',techs:'Tecnicos',schedules:'Horarios',history:'Historial'};
+
+    for(const coll of colls){
+      const allRows = [];
+      for(const station of stationIds){
+        const snap = await FB.db.collection(clientId).doc(station).collection(coll).get();
+        snap.docs.forEach(d => allRows.push({estacion: station, ...flatDoc(d)}));
+      }
+      addSheet(collNames[coll]||coll, allRows);
+    }
+
+    // Logs de auditoría
+    const auditSnap = await FB.db.collection(clientId).doc('audit').collection('logs').orderBy('ts','desc').limit(500).get();
+    addSheet('Auditoria', auditSnap.docs.map(flatDoc));
+
+    // Hoja resumen
+    const cfg = await FB.db.collection(clientId).doc('config').get();
+    const cfgData = cfg.exists ? cfg.data() : {};
+    addSheet('Resumen', [{
+      cliente: airlineName,
+      codigo: clientId,
+      email_admin: adminEmail,
+      plan: cfgData.plan||'—',
+      exportado_el: new Date().toLocaleString('es-DO')
+    }]);
+
+    const filename = `${airlineName.replace(/[^a-zA-Z0-9]/g,'_')}_datos_${new Date().toISOString().slice(0,10)}.xlsx`;
+    XLSX.writeFile(wb, filename);
+    toast('✅ Archivo descargado: '+filename);
+  }catch(e){
+    toast('❌ Error al exportar: '+e.message, true);
+    console.error('[Export]', e);
   }
 }
 
