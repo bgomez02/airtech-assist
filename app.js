@@ -583,14 +583,14 @@ function _loginSuccess(name,role){
   if(sw) sw.textContent=(_st?.flag||'🛫')+' '+loginStation;
   // Aplicar rol inmediatamente (sin plan aún) para mostrar tabs correctas
   applyRole(); initPlanTab();
-  // Cargar nombre de aerolínea y plan desde Firestore
+  // Cargar nombre de aerolínea y plan desde Firestore, luego re-aplicar rol
   FB.db.collection(AIRLINE_ID).doc('config').get().then(d=>{
     const planMap={'Gratis':'free','Básico':'basic','Pro':'pro','free':'free','basic':'basic','pro':'pro'};
     if(d.exists){
       if(d.data().plan) _activePlan = planMap[d.data().plan] || d.data().plan;
       if(d.data().airlineName) window._airlineName = d.data().airlineName;
     }
-    initPlanTab();
+    applyRole(); initPlanTab();
   }).catch(()=>{});
   initSupabaseUI(); subscribeAll(); subscribeUsers(); renderGantt(); loadTaskCatalog(); loadAircraft(); loadFlights(window._station); loadTailAssignments(); loadShiftDefs();
   // Pre-load current month schedule for auto-assign
