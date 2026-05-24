@@ -235,7 +235,8 @@ function applyPlanGates(){
 }
 
 // ══ AIRLINE & STATIONS ══════════════════════════════════════════
-let AIRLINE_ID = _cfg.airlineId || 'airtechassist';
+// Preservar clientId seteado por URL ?client= antes de que cargara app.js
+let AIRLINE_ID = window.AIRLINE_ID || _cfg.airlineId || 'airtechassist';
 window.AIRLINE_ID = AIRLINE_ID;
 window._station = '';
 let loginStation = '';
@@ -2167,7 +2168,7 @@ function openReport(){
   document.getElementById('login-screen').style.display='none';
   document.getElementById('report-screen').style.display='flex';
   document.getElementById('rep-err').textContent='';
-  document.getElementById('rep-ac').value='';
+  document.getElementById('rep-ac').value = window._prefilledAC || '';
   document.getElementById('rep-name').value='';
   document.getElementById('rep-msg').value='';
   repPhotoRemove();

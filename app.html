@@ -1159,14 +1159,20 @@
 
 
 <script>
-// Pre-llenar código de empresa desde URL ?client=xxx
+// Aplicar ?client= INMEDIATAMENTE antes de que Firebase cargue datos
 (function(){
-  const c = new URLSearchParams(location.search).get('client');
+  const params = new URLSearchParams(location.search);
+  const c = params.get('client');
   if(c){
-    document.addEventListener('DOMContentLoaded', function(){
-      const el = document.getElementById('login-client');
-      if(el) el.value = c.toLowerCase();
-    });
+    window.AIRLINE_ID = c.toLowerCase();
+    sessionStorage.setItem('airtechassist_client', c.toLowerCase());
+  }
+  // Pre-llenar matrícula si viene ?ac=HI-123 (QR en aeronave)
+  const ac = params.get('ac');
+  if(ac) window._prefilledAC = ac.toUpperCase();
+  // Abrir reporte directamente si viene ?report=1 (enlace para pilotos)
+  if(params.get('report')==='1'){
+    window.addEventListener('load', ()=>{ setTimeout(()=>{ if(typeof openReport==='function') openReport(); },1200); });
   }
 })();
 </script>
