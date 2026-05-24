@@ -882,7 +882,17 @@
           </div>
         </div>
 
-        <!-- Sección 2: Sincronizar desde API (opcional) -->
+        <!-- Sección 2: Importar SSIM (AIMS / Jeppesen) -->
+        <div style="background:#faf5ff;border:1.5px solid #d8b4fe;border-radius:10px;padding:12px 14px;margin-bottom:8px">
+          <div style="font-size:11px;font-weight:700;color:#6d28d9;margin-bottom:6px">✈ Importar desde AIMS / SSIM</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px">
+            <button onclick="document.getElementById('ssim-file-input').click()" class="btn" style="background:#7c3aed;color:#fff;font-size:11px">📄 Seleccionar archivo SSIM</button>
+            <input type="file" id="ssim-file-input" accept=".ssim,.txt,.asc,.csv" style="display:none" onchange="importSSIM(this)">
+            <span style="font-size:10px;color:#64748b">Formato estándar SSIM Cap. 7 — exportación de AIMS, Jeppesen, Lufthansa Systems</span>
+          </div>
+        </div>
+
+        <!-- Sección 3: Sincronizar desde API (opcional) -->
         <details style="background:#f0f9ff;border:1.5px solid #7dd3fc;border-radius:10px;padding:10px 14px">
           <summary style="font-size:11px;font-weight:700;color:#0369a1;cursor:pointer">🌐 Sincronizar desde API (opcional)</summary>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px">

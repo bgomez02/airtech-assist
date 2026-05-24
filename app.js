@@ -5213,6 +5213,102 @@ function importFlightsExcel(input){
   reader.readAsBinaryString(file);
 }
 
+function importSSIM(input){
+  const file=input.files[0]; if(!file) return;
+  input.value='';
+  const reader=new FileReader();
+  reader.onload=function(e){
+    try{
+      const text=e.target.result;
+      const station=window._station;
+      if(!station){ toast('Selecciona una base primero',true); return; }
+      const rows=[], skipped=[];
+      let lineNum=0;
+
+      for(const rawLine of text.split(/\r?\n/)){
+        lineNum++;
+        // SSIM Record Type 3 = flight leg
+        if(rawLine[0]!=='3') continue;
+        if(rawLine.length<46){ skipped.push(lineNum); continue; }
+        try{
+          // Posiciones estándar SSIM Capítulo 7
+          const airline   = rawLine.substring(2,4).trim();
+          const fltNum    = rawLine.substring(4,8).trim();
+          const designator= (airline+fltNum).toUpperCase().replace(/\s/g,'');
+          if(!designator){ skipped.push(lineNum); continue; }
+
+          // Días de operación: pos 11-17 (1=Lun…7=Dom)
+          const daysRaw=rawLine.substring(11,18);
+          const days=[];
+          for(let i=0;i<7;i++){
+            const ch=daysRaw[i];
+            if(ch&&/[1-7]/.test(ch)) days.push(parseInt(ch)%7); // 7(Dom)->0, 1(Lun)->1
+          }
+
+          // Aeropuertos y tiempos por posición
+          const depSt  = rawLine.substring(19,22).trim();
+          const depTime= rawLine.substring(23,27).trim();
+          const arrSt  = rawLine.substring(38,41).trim();
+          const arrTime= rawLine.substring(42,46).trim();
+
+          if(!depSt||!arrSt){ skipped.push(lineNum); continue; }
+          // Solo vuelos que tocan la base seleccionada
+          if(depSt!==station&&arrSt!==station) continue;
+
+          const fmt=t=>t.length===4?t.slice(0,2)+':'+t.slice(2):t;
+          rows.push({
+            number:  designator,
+            origin:  depSt,
+            dest:    arrSt,
+            etd:     depSt===station?fmt(depTime):'',
+            eta:     arrSt===station?fmt(arrTime):'',
+            ac:      tailAssignments[normFltNum(designator)]||'',
+            days:    days.length?days:[0,1,2,3,4,5,6],
+            type:    arrSt===station?'arr':'dep',
+            station
+          });
+        }catch(_){ skipped.push(lineNum); }
+      }
+
+      if(!rows.length){
+        toast('No se encontraron vuelos para '+station+' en el SSIM. Verifica que la base IATA sea correcta.',true);
+        return;
+      }
+
+      // Reutilizar el preview de Excel
+      _flightsExcelRows=rows;
+      const tbl=document.getElementById('flights-excel-table');
+      const cnt=document.getElementById('flights-excel-count');
+      const warn=document.getElementById('flights-excel-warn');
+      if(tbl){
+        tbl.innerHTML=`<div style="display:grid;grid-template-columns:90px 55px 100px 50px 50px 110px 80px;font-weight:700;color:#6d28d9;background:#f5f3ff;padding:6px 10px;border-radius:6px 6px 0 0;position:sticky;top:0">
+          <span>VUELO</span><span>TIPO</span><span>RUTA</span><span>ETA</span><span>ETD</span><span>MATRÍCULA</span><span>DÍAS</span></div>`;
+        const DN=['Do','Lu','Ma','Mi','Ju','Vi','Sa'];
+        rows.forEach(r=>{
+          const row=document.createElement('div');
+          const hasTail=!!r.ac;
+          row.style.cssText='display:grid;grid-template-columns:90px 55px 100px 50px 50px 110px 80px;padding:4px 10px;border-bottom:1px solid #ede9fe;'+(hasTail?'':'background:#fef9c3');
+          row.innerHTML=`
+            <span style="font-family:monospace;font-weight:700;color:#6d28d9">${r.number}</span>
+            <span style="color:${r.type==='arr'?'#166534':'#b45309'};font-weight:600">${r.type==='arr'?'▼ ARR':'▲ DEP'}</span>
+            <span style="font-size:9px">${r.origin}→${r.dest}</span>
+            <span style="font-family:monospace">${r.eta||'—'}</span>
+            <span style="font-family:monospace">${r.etd||'—'}</span>
+            <span style="font-family:monospace;font-weight:600;color:${hasTail?'#166534':'#9ca3af'}">${r.ac||'Sin matrícula'}</span>
+            <span style="font-size:9px;color:#64748b">${r.days.length===7?'Todos':r.days.map(d=>DN[d]).join(' ')}</span>`;
+          tbl.appendChild(row);
+        });
+      }
+      const noTail=rows.filter(r=>!r.ac).length;
+      if(cnt) cnt.textContent=rows.length+' vuelos (SSIM)'+(noTail?' · ⚠ '+noTail+' sin matrícula':'');
+      if(warn) warn.textContent=skipped.length?'⚠ '+skipped.length+' líneas omitidas':'';
+      document.getElementById('flights-excel-preview').style.display='block';
+
+    }catch(err){ toast('Error leyendo SSIM: '+err.message,true); console.error(err); }
+  };
+  reader.readAsText(file);
+}
+
 async function confirmFlightsExcelImport(){
   if(!_flightsExcelRows.length) return;
   const total=_flightsExcelRows.length;
