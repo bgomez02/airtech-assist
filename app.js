@@ -292,7 +292,7 @@ async function loadAircraft(){
 }
 
 function populateAircraftSelects(){
-  const selects = ['fm-ac','pm-ac','rep-ac','db-ac-filter'].map(id => document.getElementById(id));
+  const selects = ['fm-ac','pm-ac','rep-ac','db-ac-filter','mcc-rep-ac'].map(id => document.getElementById(id));
   selects.forEach(sel => {
     if(!sel) return;
     const prev = sel.value;
