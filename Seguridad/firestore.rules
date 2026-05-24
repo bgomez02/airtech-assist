@@ -28,6 +28,18 @@ service cloud.firestore {
           in ['superadmin', 'supervisor', 'admin'];
     }
 
+    function isOperator() {
+      return isAirtechassistUser() &&
+        get(/databases/$(database)/documents/airtechassist/config/users/$(request.auth.uid)).data.role
+          in ['superadmin', 'supervisor', 'admin', 'mcc'];
+    }
+
+    function isMemberOperator(clientId) {
+      return isMember(clientId) &&
+        get(/databases/$(database)/documents/$(clientId)/config/users/$(request.auth.uid)).data.role
+          in ['superadmin', 'admin', 'supervisor', 'mcc'];
+    }
+
     // ════════════════════════════════════════════════════════════
     // FUNCIONES AUXILIARES — MULTI-TENANT (nuevos clientes)
     // ════════════════════════════════════════════════════════════
@@ -160,6 +172,13 @@ service cloud.firestore {
       allow read, write: if isAirtechassistUser() || isSuperAdmin();
     }
 
+    match /airtechassist/{station}/diferidos/{id} {
+      allow read:   if isAirtechassistUser() || isSuperAdmin();
+      allow create: if isOperator() || isSuperAdmin();
+      allow update: if isOperator() || isSuperAdmin();
+      allow delete: if isSuperAdmin();
+    }
+
     // ════════════════════════════════════════════════════════════
     // CLIENTES MULTI-TENANT — /{clientId}/...
     // Aplica a cualquier colección que no sea airtechassist ni registry
@@ -253,6 +272,13 @@ service cloud.firestore {
 
     match /{clientId}/{station}/documents/{id} {
       allow read, write: if isMember(clientId);
+    }
+
+    match /{clientId}/{station}/diferidos/{id} {
+      allow read:   if isMember(clientId) || isSuperAdmin();
+      allow create: if isMemberOperator(clientId) || isSuperAdmin();
+      allow update: if isMemberOperator(clientId) || isSuperAdmin();
+      allow delete: if isMemberAdmin(clientId) || isSuperAdmin();
     }
 
     // ════════════════════════════════════════════════════════════

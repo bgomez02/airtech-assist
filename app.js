@@ -170,19 +170,19 @@ const PLAN_CONFIG = {
     name:'Gratis', emoji:'🆓',
     maxBases:1, maxAircraft:5, maxUsers:3, historyDays:7,
     auditLog:false, export:false,
-    tabs:['gantt'],
+    tabs:['gantt','users'],
   },
   basic: {
     name:'Básico', emoji:'⭐',
     maxBases:2, maxAircraft:15, maxUsers:10, historyDays:30,
     auditLog:false, export:true,
-    tabs:['gantt','demand','staff','users','plan','schedule','flights','catalog','dashboard'],
+    tabs:['gantt','demand','staff','users','plan','schedule','flights','catalog','dashboard','diferidos'],
   },
   pro: {
     name:'Pro', emoji:'🚀',
     maxBases:Infinity, maxAircraft:Infinity, maxUsers:Infinity, historyDays:Infinity,
     auditLog:true, export:true,
-    tabs:['gantt','demand','staff','users','plan','schedule','flights','catalog','dashboard','mcc'],
+    tabs:['gantt','demand','staff','users','plan','schedule','flights','catalog','dashboard','mcc','diferidos'],
   },
 };
 
@@ -215,7 +215,7 @@ function closeUpgradeModal(){
 function applyPlanGates(){
   const cfg=planCfg();
   // Gate tabs not included in this plan
-  ['demand','staff','users','plan','schedule','flights','catalog','dashboard','mcc'].forEach(t=>{
+  ['demand','staff','users','plan','schedule','flights','catalog','dashboard','mcc','diferidos'].forEach(t=>{
     const el=document.getElementById('TAB-'+t);
     if(el && !cfg.tabs.includes(t)) el.style.display='none';
   });
@@ -727,6 +727,10 @@ function applyRole(){
   // Pestaña Usuarios — solo superadmin
   const tabUsers=document.getElementById('TAB-users');
   if(tabUsers) tabUsers.style.display=canManageUsers?'':'none';
+
+  // Pestaña Diferidos — mcc, superadmin, supervisor
+  const tabDefs=document.getElementById('TAB-diferidos');
+  if(tabDefs) tabDefs.style.display=(isSuperAdmin||isSupervisor||isMCC)?'':'none';
 
   // Pestaña Clientes — solo el superadmin de la plataforma (bgomez)
   const tabPlatform=document.getElementById('TAB-platform');
@@ -1286,7 +1290,7 @@ function initFB(){
 // ══ TABS ══
 function switchTab(n){
   if(n!=='platform' && !planAllowsTab(n)){ showUpgradeModal(n); return; }
-  ['gantt','demand','staff','users','plan','mcc','catalog','dashboard','schedule','flights','platform'].forEach(v=>{
+  ['gantt','demand','staff','users','plan','mcc','catalog','dashboard','schedule','flights','platform','diferidos'].forEach(v=>{
     const view=document.getElementById('VIEW-'+v);
     const tab=document.getElementById('TAB-'+v);
     if(view) view.classList.toggle('on',v===n);
@@ -1297,6 +1301,7 @@ function switchTab(n){
   if(n==='users')     setTimeout(()=>{renderUsers();renderNotifConfig();renderAircraftManager();},100);
   if(n==='dashboard') setTimeout(()=>{ if(typeof renderDashboard==='function') renderDashboard(); else setTimeout(()=>renderDashboard(),500); },80);
   if(n==='mcc'){initMCC();setTimeout(()=>renderMCC(),100);}
+  if(n==='diferidos'){initDiferidos();setTimeout(()=>renderDiferidos(),100);}
   if(n==='plan')    { initPlanTab(); setTimeout(()=>renderPlan(),50); }
   if(n==='schedule'){ setTimeout(()=>{ if(typeof renderScheduleView==='function') renderScheduleView(); },50); }
   if(n==='flights'){
@@ -3115,7 +3120,8 @@ async function renderUsers(){
     el.appendChild(sec);
   });
 
-  // Bladimir fixed note
+  // Bladimir fixed note — solo visible en la cuenta de plataforma, nunca en cuentas de clientes
+  if(AIRLINE_ID !== 'airtechassist') return;
   const note=document.createElement('div');
   note.style.cssText='margin-top:16px;background:#f5f3ff;border:1.5px solid #c4b5fd;border-radius:10px;padding:12px 14px;font-size:11px;color:#5b21b6';
   note.innerHTML=`<div style="font-weight:700;margin-bottom:4px">👑 Super Administrador (fijo — no aparece en la lista)</div>
@@ -4291,6 +4297,494 @@ function mkSheet(name,rows){let x=`<Worksheet ss:Name="${esc(name)}"><Table>\n`;
 let mccStationData={};
 let mccUnsubs=[];
 
+// ══ DIFERIDOS (MEL/CDL) ══════════════════════════════════════════════════════
+
+let defData = {};       // { stationCode: [diferidos] }
+let defUnsubs = [];
+let _defFilter = 'open';
+let _closingDefId = null, _closingDefStation = null;
+
+const MEL_CAT_DAYS = { A:1, B:3, C:10, D:120 };
+
+function initDiferidos(){
+  defUnsubs.forEach(u=>{try{u();}catch(_){}});
+  defUnsubs=[];
+  defData={};
+  const refresh=()=>{if(document.getElementById('VIEW-diferidos')?.classList.contains('on')) renderDiferidos();};
+  stations.forEach(st=>{
+    defData[st.code]=[];
+    defUnsubs.push(FB.onSnapshot(FB.DEFS(st.code),snap=>{
+      defData[st.code]=snap.docs.map(d=>({id:d.id,...d.data()}));
+      refresh();
+      _defUpdateTabBadge();
+    }));
+  });
+}
+
+function _defAllDefs(){ return Object.values(defData).flat(); }
+
+function _defUpdateTabBadge(){
+  const now=new Date();
+  const urgent=_defAllDefs().filter(d=>{
+    if(d.status!=='open'||!d.expiryDate) return false;
+    const rem=(new Date(d.expiryDate+'T23:59:00')-now)/(1000*60*60*24);
+    return rem<=3;
+  }).length;
+  const badge=document.getElementById('def-tab-badge');
+  if(!badge) return;
+  badge.style.display=urgent>0?'inline':'none';
+  badge.textContent=urgent;
+}
+
+function renderDiferidos(){
+  const now=new Date();
+  const all=_defAllDefs();
+
+  // KPIs
+  const open=all.filter(d=>d.status==='open');
+  const expired=open.filter(d=>d.expiryDate&&new Date(d.expiryDate+'T23:59:00')<now);
+  const soon=open.filter(d=>{
+    if(!d.expiryDate) return false;
+    const rem=(new Date(d.expiryDate+'T23:59:00')-now)/(1000*60*60*24);
+    return rem>=0&&rem<=3;
+  });
+  const closed=all.filter(d=>d.status==='closed');
+
+  const _set=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};
+  _set('def-kpi-open',open.length);
+  _set('def-kpi-exp',expired.length);
+  _set('def-kpi-soon',soon.length);
+  _set('def-kpi-closed',closed.length);
+
+  // Filter
+  const search=(document.getElementById('def-search')?.value||'').toLowerCase();
+  let filtered=[...all];
+  if(_defFilter==='open')    filtered=filtered.filter(d=>d.status==='open'&&!(d.expiryDate&&new Date(d.expiryDate+'T23:59:00')<now));
+  else if(_defFilter==='expired') filtered=filtered.filter(d=>d.status==='open'&&d.expiryDate&&new Date(d.expiryDate+'T23:59:00')<now);
+  else if(_defFilter==='closed')  filtered=filtered.filter(d=>d.status==='closed');
+  if(search) filtered=filtered.filter(d=>(d.ac||'').toLowerCase().includes(search)||(d.description||'').toLowerCase().includes(search)||(d.ataChapter||'').toLowerCase().includes(search)||(d.melRef||'').toLowerCase().includes(search)||(d.num||'').toLowerCase().includes(search));
+
+  // Sort: expired first → by expiry asc → closed last
+  filtered.sort((a,b)=>{
+    if(a.status==='closed'&&b.status!=='closed') return 1;
+    if(b.status==='closed'&&a.status!=='closed') return -1;
+    if(!a.expiryDate&&!b.expiryDate) return 0;
+    if(!a.expiryDate) return 1;
+    if(!b.expiryDate) return -1;
+    return a.expiryDate.localeCompare(b.expiryDate);
+  });
+
+  const canManage=currentRole==='mcc'||currentRole==='superadmin'||currentRole==='supervisor';
+  const el=document.getElementById('def-list');
+
+  if(!filtered.length){
+    el.innerHTML='<div style="text-align:center;padding:32px;color:#94a3b8;font-size:13px">No hay diferidos para mostrar</div>';
+  } else {
+    el.innerHTML=filtered.map(d=>{
+      const isClosed=d.status==='closed';
+      let urgencyColor='#1d4ed8',urgencyBg='#dbeafe',urgencyText='Vigente';
+      if(!isClosed&&d.expiryDate){
+        const rem=Math.round((new Date(d.expiryDate+'T23:59:00')-now)/(1000*60*60*24));
+        if(rem<0){urgencyColor='#b91c1c';urgencyBg='#fee2e2';urgencyText='VENCIDO';}
+        else if(rem<=3){urgencyColor='#c2410c';urgencyBg='#fff0e6';urgencyText=rem+'d restantes';}
+        else if(rem<=7){urgencyColor='#92400e';urgencyBg='#fffbeb';urgencyText=rem+'d restantes';}
+        else{urgencyColor='#166534';urgencyBg='#f0fdf4';urgencyText=rem+'d restantes';}
+      }
+      const catColors={A:'#b91c1c',B:'#c2410c',C:'#92400e',D:'#166534'};
+      const catColor=catColors[d.melCategory]||'#374151';
+      return `<div class="card" style="margin-bottom:8px;border-left:4px solid ${urgencyColor}">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+            <span style="font-family:monospace;font-size:11px;font-weight:700;background:#f1f5f9;color:#374151;padding:2px 8px;border-radius:10px">${esc(d.num||'—')}</span>
+            <span style="background:${catColor}20;color:${catColor};font-size:10px;font-weight:800;padding:2px 8px;border-radius:10px">Cat.${esc(d.melCategory||'?')}</span>
+            ${d.defType?`<span style="background:#f5f3ff;color:#6d28d9;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px">${esc(d.defType)}</span>`:''}
+            <span style="background:#dbeafe;color:#1e40af;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px">${esc(d.ac||'—')}</span>
+            <span style="font-size:10px;color:#64748b;font-weight:600">${esc(d.station||'')}</span>
+            ${!isClosed?`<span style="background:${urgencyBg};color:${urgencyColor};font-size:10px;font-weight:800;padding:2px 8px;border-radius:10px">${urgencyText}</span>`:'<span style="background:#f0fdf4;color:#166534;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px">CERRADO</span>'}
+          </div>
+          <div style="display:flex;gap:6px;flex-shrink:0">
+            ${canManage?`<button onclick="openDefParts('${d.id}','${esc(d.station)}')" class="btn" style="background:#eff6ff;color:#1d4ed8;border:1.5px solid #bfdbfe;font-size:11px;padding:5px 12px">📦 Partes</button>`:''}
+            ${!isClosed&&canManage?`<button onclick="openCloseDef('${d.id}','${esc(d.station)}')" class="btn" style="background:#f0fdf4;color:#166534;border:1.5px solid #86efac;font-size:11px;padding:5px 12px">Cerrar</button>`:''}
+          </div>
+        </div>
+        <div style="font-size:13px;font-weight:600;color:#1e293b;margin-bottom:5px">${esc(d.description||'')}</div>
+        <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:#64748b;margin-bottom:${(d.parts&&d.parts.length)||d.notes?'6px':'0'}">
+          ${d.ataChapter?`<span>ATA <b>${esc(d.ataChapter)}</b></span>`:''}
+          ${d.melRef?`<span>MEL <b>${esc(d.melRef)}</b></span>`:''}
+          <span>Apertura <b>${esc(d.openDate||'')}</b></span>
+          ${d.expiryDate?`<span>Vence <b>${esc(d.expiryDate)}</b></span>`:''}
+          <span>Por <b>${esc(d.openedBy||'')}</b></span>
+        </div>
+        ${_defPartsBadge(d)}
+        ${d.notes?`<div style="font-size:11px;color:#475569;margin-top:6px;padding:6px 8px;background:#f8fafc;border-radius:6px;border-left:3px solid #cbd5e1">${esc(d.notes)}</div>`:''}
+        ${isClosed?`<div style="margin-top:8px;padding:8px 10px;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;font-size:11px">
+          <div style="font-weight:700;color:#166534;margin-bottom:3px">Accion correctiva:</div>
+          <div style="color:#1e293b">${esc(d.closureAction||'')}</div>
+          ${d.closureRef?`<div style="color:#64748b;margin-top:2px">Ref: ${esc(d.closureRef)}</div>`:''}
+          <div style="color:#94a3b8;margin-top:3px;font-size:10px">Cerrado por ${esc(d.closedBy||'')} · ${d.closedDate||''}</div>
+        </div>`:''}
+      </div>`;
+    }).join('');
+  }
+
+  // Recurrencias: fallas cerradas agrupadas por ac+ataChapter con count > 1
+  const groups={};
+  closed.forEach(d=>{
+    if(!d.ataChapter) return;
+    const k=(d.ac||'?')+'|'+(d.ataChapter||'');
+    if(!groups[k]) groups[k]={ac:d.ac,ata:d.ataChapter,count:0,last:''};
+    groups[k].count++;
+    if((d.closedDate||d.openDate||'')>groups[k].last) groups[k].last=d.closedDate||d.openDate||'';
+  });
+  const recArr=Object.values(groups).filter(g=>g.count>1).sort((a,b)=>b.count-a.count);
+  const recWrap=document.getElementById('def-recurrencias-wrap');
+  const recEl=document.getElementById('def-recurrencias');
+  if(recWrap&&recEl){
+    recWrap.style.display=recArr.length?'block':'none';
+    recEl.innerHTML=recArr.map(g=>`<div style="display:inline-flex;align-items:center;gap:8px;background:#fdf4ff;border:1.5px solid #e9d5ff;border-radius:8px;padding:5px 12px;margin:3px;font-size:11px">
+      <span style="background:#7c3aed;color:#fff;font-size:10px;font-weight:800;padding:1px 7px;border-radius:10px">${g.count}x</span>
+      <b>${esc(g.ac)}</b> ATA ${esc(g.ata)}
+      <span style="color:#94a3b8">último: ${esc(g.last)}</span>
+    </div>`).join('');
+  }
+}
+
+function defSetFilter(f){
+  _defFilter=f;
+  ['all','open','expired','closed'].forEach(x=>{
+    const btn=document.getElementById('def-filter-'+x);
+    if(btn) btn.style.cssText=x===f?'background:#0f2a66;color:#fff;border-color:#0f2a66':'';
+  });
+  renderDiferidos();
+}
+
+function defCalcExpiry(){
+  const cat=document.getElementById('def-create-category')?.value;
+  const openDate=document.getElementById('def-create-open')?.value;
+  const dispEl=document.getElementById('def-create-expiry-disp');
+  const expInp=document.getElementById('def-create-expiry');
+  if(!cat||!openDate){if(dispEl)dispEl.textContent='';return;}
+  const days=MEL_CAT_DAYS[cat]||1;
+  const exp=new Date(openDate+'T12:00:00');
+  exp.setDate(exp.getDate()+days);
+  const expStr=localDateStr(exp);
+  if(expInp) expInp.value=expStr;
+  if(dispEl){
+    const label=cat==='A'?'Antes del próximo vuelo — vence '+expStr:`Vence ${expStr} (${days} días cat. ${cat})`;
+    dispEl.textContent=label;
+    dispEl.style.color=cat==='A'?'#b91c1c':cat==='B'?'#c2410c':cat==='C'?'#92400e':'#166534';
+  }
+}
+
+function _defNextNum(){
+  const nums=_defAllDefs().map(d=>{const m=(d.num||'').match(/D-(\d+)/);return m?parseInt(m[1]):0;});
+  return 'D-'+String((nums.length?Math.max(...nums):0)+1).padStart(3,'0');
+}
+
+function openCreateDef(){
+  const acSel=document.getElementById('def-create-ac');
+  acSel.innerHTML='<option value="">— Seleccionar —</option>'+aircraft.map(a=>`<option value="${esc(a.reg)}">${esc(a.reg)}${a.model?' · '+a.model:''}</option>`).join('');
+  const stSel=document.getElementById('def-create-station');
+  stSel.innerHTML=stations.map(s=>`<option value="${esc(s.code)}"${s.code===activeStation()?'selected':''}>${esc(s.code)}</option>`).join('');
+  const today=localDateStr();
+  document.getElementById('def-create-open').value=today;
+  document.getElementById('def-create-category').value='B';
+  ['def-create-desc','def-create-ata','def-create-melref','def-create-notes','def-create-err'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
+  document.getElementById('def-create-type').value='MEL';
+  defCalcExpiry();
+  document.getElementById('modal-def-create').classList.add('open');
+}
+
+async function submitCreateDef(){
+  const ac=document.getElementById('def-create-ac').value;
+  const station=document.getElementById('def-create-station').value;
+  const desc=document.getElementById('def-create-desc').value.trim();
+  const openDate=document.getElementById('def-create-open').value;
+  const category=document.getElementById('def-create-category').value;
+  const errEl=document.getElementById('def-create-err');
+  if(!ac){errEl.textContent='Selecciona una aeronave';return;}
+  if(!station){errEl.textContent='Selecciona una estación';return;}
+  if(!desc){errEl.textContent='La descripción es requerida';return;}
+  if(!openDate){errEl.textContent='Indica la fecha de apertura';return;}
+  const btn=document.getElementById('def-create-submit');
+  btn.disabled=true; btn.textContent='Guardando...';
+  try{
+    const num=_defNextNum();
+    const days=MEL_CAT_DAYS[category]||1;
+    const exp=new Date(openDate+'T12:00:00'); exp.setDate(exp.getDate()+days);
+    await FB.db.collection(AIRLINE_ID).doc(station).collection('diferidos').add({
+      num, ac, station,
+      defType:document.getElementById('def-create-type').value,
+      melCategory:category,
+      ataChapter:document.getElementById('def-create-ata').value.trim().toUpperCase(),
+      melRef:document.getElementById('def-create-melref').value.trim().toUpperCase(),
+      description:desc.toUpperCase(),
+      openDate,
+      expiryDate:localDateStr(exp),
+      openedBy:currentUserName,
+      notes:document.getElementById('def-create-notes').value.trim(),
+      status:'open',
+      createdAt:Date.now()
+    });
+    document.getElementById('modal-def-create').classList.remove('open');
+    toast('✅ Diferido '+num+' creado');
+  }catch(e){errEl.textContent='Error: '+e.message;}
+  finally{btn.disabled=false; btn.textContent='💾 Crear Diferido';}
+}
+
+function openCloseDef(id, station){
+  _closingDefId=id; _closingDefStation=station;
+  const d=(defData[station]||[]).find(x=>x.id===id);
+  if(!d) return;
+  document.getElementById('def-close-num').textContent=d.num||'—';
+  document.getElementById('def-close-ac').textContent=d.ac||'—';
+  document.getElementById('def-close-desc').textContent=d.description||'';
+  ['def-close-action','def-close-ref','def-close-err'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
+  document.getElementById('def-close-date').value=localDateStr();
+  document.getElementById('modal-def-close').classList.add('open');
+}
+
+async function submitCloseDef(){
+  const action=document.getElementById('def-close-action').value.trim();
+  const errEl=document.getElementById('def-close-err');
+  if(!action){errEl.textContent='La acción correctiva es requerida';return;}
+  const btn=document.getElementById('def-close-submit');
+  btn.disabled=true; btn.textContent='Cerrando...';
+  try{
+    await FB.db.collection(AIRLINE_ID).doc(_closingDefStation).collection('diferidos').doc(_closingDefId).update({
+      status:'closed',
+      closureAction:action.toUpperCase(),
+      closureRef:document.getElementById('def-close-ref').value.trim().toUpperCase(),
+      closedBy:currentUserName,
+      closedDate:document.getElementById('def-close-date').value,
+      closedAt:Date.now()
+    });
+    document.getElementById('modal-def-close').classList.remove('open');
+    toast('✅ Diferido cerrado');
+  }catch(e){errEl.textContent='Error: '+e.message;}
+  finally{btn.disabled=false; btn.textContent='✅ Confirmar Cierre';}
+}
+
+// ── Partes requeridas para cierre ──────────────────────────────────────────
+
+let _defPartsId=null, _defPartsSt=null, _defPartsTemp=[];
+
+function _defPartStatus(p){
+  if(!p.pn) return 'ts';
+  if(p.eta) return 'on_order';
+  return 'available';
+}
+
+function _defPartsBadge(d){
+  const parts=d.parts||[];
+  if(!parts.length) return `<div style="margin-top:5px"><span style="background:#fef9c3;color:#854d0e;font-size:10px;font-weight:800;padding:2px 9px;border-radius:10px;border:1px solid #fde047">🔍 T/S — Sin partes identificadas</span></div>`;
+  const anyTS=parts.some(p=>_defPartStatus(p)==='ts');
+  const orders=parts.filter(p=>_defPartStatus(p)==='on_order');
+  const allOK=parts.every(p=>_defPartStatus(p)==='available');
+  let badge='';
+  if(anyTS) badge+=`<span style="background:#fef9c3;color:#854d0e;font-size:10px;font-weight:800;padding:2px 9px;border-radius:10px;border:1px solid #fde047;margin-right:4px">🔍 T/S</span>`;
+  if(orders.length){
+    const nearest=orders.map(p=>p.eta).filter(Boolean).sort()[0]||'';
+    badge+=`<span style="background:#eff6ff;color:#1d4ed8;font-size:10px;font-weight:700;padding:2px 9px;border-radius:10px;border:1px solid #bfdbfe;margin-right:4px">🚚 En tránsito${nearest?' · ETA '+nearest:''}</span>`;
+  }
+  if(allOK) badge=`<span style="background:#f0fdf4;color:#166534;font-size:10px;font-weight:700;padding:2px 9px;border-radius:10px;border:1px solid #86efac">✅ Partes disponibles (${parts.length})</span>`;
+  const rows=parts.map(p=>{
+    const st=_defPartStatus(p);
+    const stBadge=st==='ts'?'<span style="background:#fef9c3;color:#854d0e;font-size:9px;font-weight:700;padding:1px 6px;border-radius:8px">T/S</span>':st==='on_order'?`<span style="background:#eff6ff;color:#1d4ed8;font-size:9px;font-weight:700;padding:1px 6px;border-radius:8px">ETA ${esc(p.eta)}</span>`:'<span style="background:#f0fdf4;color:#166534;font-size:9px;font-weight:700;padding:1px 6px;border-radius:8px">OK</span>';
+    return `<tr><td style="padding:3px 8px;font-family:monospace;font-size:11px;font-weight:600">${esc(p.pn||'—')}</td><td style="padding:3px 8px;font-size:11px;color:#374151">${esc(p.desc||'')}</td><td style="padding:3px 8px;font-size:11px;text-align:center">${p.qty||1}</td><td style="padding:3px 8px">${stBadge}</td></tr>`;
+  }).join('');
+  return `<div style="margin-top:6px">${badge}<div style="margin-top:6px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden"><table style="width:100%;border-collapse:collapse"><thead><tr style="background:#f8fafc"><th style="padding:4px 8px;font-size:10px;color:#64748b;font-weight:600;text-align:left">P/N</th><th style="padding:4px 8px;font-size:10px;color:#64748b;font-weight:600;text-align:left">Descripción</th><th style="padding:4px 8px;font-size:10px;color:#64748b;font-weight:600;text-align:center">Cant</th><th style="padding:4px 8px;font-size:10px;color:#64748b;font-weight:600;text-align:left">Estado</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+}
+
+function openDefParts(id, station){
+  _defPartsId=id; _defPartsSt=station;
+  const d=(defData[station]||[]).find(x=>x.id===id);
+  if(!d) return;
+  _defPartsTemp=(d.parts||[]).map(p=>({...p}));
+  document.getElementById('def-parts-title').textContent=(d.num||'—')+' · '+( d.ac||'');
+  document.getElementById('def-parts-def-desc').textContent=d.description||'';
+  document.getElementById('def-parts-pn').value='';
+  document.getElementById('def-parts-desc').value='';
+  document.getElementById('def-parts-qty').value='1';
+  document.getElementById('def-parts-eta').value='';
+  document.getElementById('def-parts-err').textContent='';
+  _defRenderPartsTable();
+  document.getElementById('modal-def-parts').classList.add('open');
+}
+
+function _defRenderPartsTable(){
+  const el=document.getElementById('def-parts-list');
+  if(!_defPartsTemp.length){
+    el.innerHTML='<div style="text-align:center;padding:16px;color:#94a3b8;font-size:12px">Sin partes cargadas — el diferido está en T/S</div>';
+    return;
+  }
+  el.innerHTML=`<table style="width:100%;border-collapse:collapse;font-size:12px">
+    <thead><tr style="background:#f8fafc;border-bottom:1px solid #e2e8f0">
+      <th style="padding:6px 8px;text-align:left;font-size:11px;color:#64748b;font-weight:600">P/N</th>
+      <th style="padding:6px 8px;text-align:left;font-size:11px;color:#64748b;font-weight:600">Descripción</th>
+      <th style="padding:6px 8px;text-align:center;font-size:11px;color:#64748b;font-weight:600">Cant</th>
+      <th style="padding:6px 8px;text-align:left;font-size:11px;color:#64748b;font-weight:600">ETA</th>
+      <th style="padding:6px 8px;text-align:left;font-size:11px;color:#64748b;font-weight:600">Estado</th>
+      <th style="padding:6px 8px;width:28px"></th>
+    </tr></thead>
+    <tbody>${_defPartsTemp.map((p,i)=>{
+      const st=_defPartStatus(p);
+      const stCell=st==='ts'?'<span style="background:#fef9c3;color:#854d0e;font-size:10px;font-weight:700;padding:1px 7px;border-radius:8px">T/S</span>':st==='on_order'?`<span style="background:#eff6ff;color:#1d4ed8;font-size:10px;font-weight:700;padding:1px 7px;border-radius:8px">Tránsito</span>`:'<span style="background:#f0fdf4;color:#166534;font-size:10px;font-weight:700;padding:1px 7px;border-radius:8px">OK</span>';
+      return `<tr style="border-bottom:1px solid #f1f5f9">
+        <td style="padding:6px 8px;font-family:monospace;font-weight:600">${esc(p.pn||'—')}</td>
+        <td style="padding:6px 8px;color:#374151">${esc(p.desc||'')}</td>
+        <td style="padding:6px 8px;text-align:center">${p.qty||1}</td>
+        <td style="padding:6px 8px;color:#64748b;font-size:11px">${esc(p.eta||'—')}</td>
+        <td style="padding:6px 8px">${stCell}</td>
+        <td style="padding:6px 8px"><button onclick="removeDefPart(${i})" style="background:none;border:none;cursor:pointer;color:#dc2626;font-size:14px;padding:0;line-height:1">×</button></td>
+      </tr>`;
+    }).join('')}</tbody>
+  </table>`;
+}
+
+function addDefPart(){
+  const pn=document.getElementById('def-parts-pn').value.trim().toUpperCase();
+  const desc=document.getElementById('def-parts-desc').value.trim().toUpperCase();
+  const qty=parseInt(document.getElementById('def-parts-qty').value)||1;
+  const eta=document.getElementById('def-parts-eta').value;
+  const errEl=document.getElementById('def-parts-err');
+  if(!desc){errEl.textContent='La descripción es requerida';return;}
+  errEl.textContent='';
+  _defPartsTemp.push({pn,desc,qty,eta});
+  document.getElementById('def-parts-pn').value='';
+  document.getElementById('def-parts-desc').value='';
+  document.getElementById('def-parts-qty').value='1';
+  document.getElementById('def-parts-eta').value='';
+  _defRenderPartsTable();
+}
+
+function removeDefPart(i){
+  _defPartsTemp.splice(i,1);
+  _defRenderPartsTable();
+}
+
+async function saveDefParts(){
+  const btn=document.getElementById('def-parts-submit');
+  btn.disabled=true; btn.textContent='Guardando...';
+  try{
+    await FB.db.collection(AIRLINE_ID).doc(_defPartsSt).collection('diferidos').doc(_defPartsId).update({
+      parts:_defPartsTemp,
+      partsUpdatedBy:currentUserName,
+      partsUpdatedAt:Date.now()
+    });
+    document.getElementById('modal-def-parts').classList.remove('open');
+    toast('✅ Partes guardadas');
+  }catch(e){document.getElementById('def-parts-err').textContent='Error: '+e.message;}
+  finally{btn.disabled=false; btn.textContent='💾 Guardar partes';}
+}
+
+// ── Estadísticas diarias ───────────────────────────────────────────────────
+
+let _defChart = null;
+
+function defToggleStats(){
+  const wrap = document.getElementById('def-stats-wrap');
+  const btn  = document.getElementById('def-stats-toggle');
+  if(!wrap) return;
+  const visible = wrap.style.display !== 'none';
+  wrap.style.display = visible ? 'none' : 'block';
+  btn.textContent = visible ? '📈 Ver estadísticas de aperturas / cierres' : '📈 Ocultar estadísticas';
+  if(!visible) renderDefStats();
+}
+
+function renderDefStats(){
+  const days = parseInt(document.getElementById('def-stats-range')?.value || 30);
+  const all  = _defAllDefs();
+  const now  = new Date();
+
+  // Build label array for last N days
+  const labels = [];
+  const openByDay = {}, closeByDay = {};
+  for(let i = days - 1; i >= 0; i--){
+    const d = new Date(now); d.setDate(d.getDate() - i);
+    const k = localDateStr(d);
+    labels.push(k);
+    openByDay[k]  = 0;
+    closeByDay[k] = 0;
+  }
+  const earliest = labels[0];
+
+  all.forEach(d => {
+    // Opened
+    const od = d.openDate || (d.createdAt ? localDateStr(new Date(d.createdAt)) : null);
+    if(od && od >= earliest && openByDay[od] !== undefined) openByDay[od]++;
+    // Closed
+    if(d.status === 'closed' && d.closedDate && d.closedDate >= earliest && closeByDay[d.closedDate] !== undefined)
+      closeByDay[d.closedDate]++;
+  });
+
+  // KPIs
+  const totalOpen   = Object.values(openByDay).reduce((a,b)=>a+b,0);
+  const totalClosed = Object.values(closeByDay).reduce((a,b)=>a+b,0);
+  const rate = totalOpen ? Math.round(totalClosed / totalOpen * 100) : 0;
+
+  // Avg days open for closed items
+  const closedItems = all.filter(d => d.status === 'closed' && d.openDate && d.closedDate);
+  let avgDays = '—';
+  if(closedItems.length){
+    const sum = closedItems.reduce((acc, d) => {
+      const diff = (new Date(d.closedDate+'T12:00:00') - new Date(d.openDate+'T12:00:00')) / (1000*60*60*24);
+      return acc + diff;
+    }, 0);
+    avgDays = (sum / closedItems.length).toFixed(1) + 'd';
+  }
+
+  const _s = (id, v) => { const e = document.getElementById(id); if(e) e.textContent = v; };
+  _s('def-stat-total-open',   totalOpen);
+  _s('def-stat-total-closed', totalClosed);
+  _s('def-stat-avg-days',     avgDays);
+  _s('def-stat-rate',         totalOpen ? rate + '%' : '—');
+
+  // Chart
+  const fmtLbl = d => { const p = d.split('-'); return p[2]+'/'+p[1]; };
+  if(_defChart){ try{ _defChart.destroy(); }catch(_){} _defChart = null; }
+  const canvas = document.getElementById('def-chart-daily');
+  if(!canvas) return;
+  if(typeof Chart === 'undefined') return;
+  Chart.defaults.color = '#94a3b8';
+  Chart.defaults.borderColor = 'rgba(148,163,184,.15)';
+  _defChart = new Chart(canvas, {
+    type: 'bar',
+    data: {
+      labels: labels.map(fmtLbl),
+      datasets: [
+        {
+          label: 'Abiertos',
+          data: labels.map(k => openByDay[k]),
+          backgroundColor: 'rgba(220,38,38,.75)',
+          borderColor: '#dc2626',
+          borderWidth: 1, borderRadius: 4
+        },
+        {
+          label: 'Cerrados',
+          data: labels.map(k => closeByDay[k]),
+          backgroundColor: 'rgba(22,101,52,.75)',
+          borderColor: '#166534',
+          borderWidth: 1, borderRadius: 4
+        }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'top', labels: { boxWidth: 12, font: { size: 11 } } },
+        tooltip: { mode: 'index', intersect: false }
+      },
+      scales: {
+        x: { grid: { display: false }, ticks: { font: { size: 10 }, maxRotation: 45 } },
+        y: { beginAtZero: true, ticks: { stepSize: 1, font: { size: 10 } } }
+      }
+    }
+  });
+}
+
+// ══ FIN DIFERIDOS ══════════════════════════════════════════════════════════
+
 function initMCC(){
   mccUnsubs.forEach(u=>{try{u();}catch(_){}});
   mccUnsubs=[];
@@ -5248,8 +5742,8 @@ function importSSIM(input){
           // Aeropuertos y tiempos por posición
           const depSt  = rawLine.substring(19,22).trim();
           const depTime= rawLine.substring(23,27).trim();
-          const arrSt  = rawLine.substring(38,41).trim();
-          const arrTime= rawLine.substring(42,46).trim();
+          const arrSt  = rawLine.substring(40,43).trim();
+          const arrTime= rawLine.substring(44,48).trim();
 
           if(!depSt||!arrSt){ skipped.push(lineNum); continue; }
           // Solo vuelos que tocan la base seleccionada
@@ -5316,13 +5810,17 @@ async function confirmFlightsExcelImport(){
   const btn=document.querySelector('#flights-excel-preview .btn-green');
   if(btn){ btn.disabled=true; btn.textContent='Importando…'; }
   try{
+    function toMin(hhmm){ if(!hhmm) return 0; const [h,m]=(hhmm||'00:00').split(':').map(Number); return h*60+m; }
     const CHUNK=400;
     const rows=[..._flightsExcelRows];
+    const savedFlights=[];
     for(let i=0;i<rows.length;i+=CHUNK){
       const batch=FB.db.batch();
       rows.slice(i,i+CHUNK).forEach(r=>{
         const ref=FB.db.collection(AIRLINE_ID).doc(station).collection('flights').doc();
-        batch.set(ref,{...r, createdAt:Date.now(), createdBy:currentUserName, excelImport:true});
+        const etaM=toMin(r.eta), etdM=toMin(r.etd);
+        batch.set(ref,{...r, etaM, etdM, createdAt:Date.now(), createdBy:currentUserName, excelImport:true});
+        savedFlights.push({...r, etaM, etdM, flightDocId:ref.id});
       });
       await batch.commit();
     }
@@ -5330,7 +5828,15 @@ async function confirmFlightsExcelImport(){
     _flightsExcelRows=[];
     await loadFlights(station);
     renderFlightsView();
-    toast('✅ '+total+' vuelos importados para '+station);
+    // Auto-generate Gantt OTs for flights that have an aircraft assigned
+    const withAC=savedFlights.filter(f=>f.ac&&f.etaM&&f.etdM);
+    if(withAC.length){
+      toast('✅ '+total+' vuelos importados · Generando OTs en Gantt…');
+      for(const fl of withAC) await autoGenerateFlightOTs(station, fl);
+      toast('✅ '+total+' vuelos importados · '+withAC.length+' OTs generadas en Gantt');
+    } else {
+      toast('✅ '+total+' vuelos importados para '+station+(savedFlights.some(f=>!f.ac)?' · Asigna matrículas para generar OTs en Gantt':''));
+    }
   }catch(err){
     console.error(err); toast('Error: '+err.message,true);
     if(btn){ btn.disabled=false; btn.textContent='✅ Importar vuelos'; }
@@ -5661,6 +6167,8 @@ async function submitFlight(){
   const station = document.getElementById('flights-station-filter')?.value || activeStation();
   const days  = [...document.querySelectorAll('.day-btn.active')].map(b=>parseInt(b.dataset.day));
   const notes = (document.getElementById('fl-notes')?.value||'').trim();
+  const ac    = (document.getElementById('fl-ac')?.value||'').trim().toUpperCase();
+  function toMin(hhmm){ if(!hhmm) return 0; const [h,m]=(hhmm||'00:00').split(':').map(Number); return h*60+m; }
 
   let data;
   if(flType==='arr'){
@@ -5668,21 +6176,22 @@ async function submitFlight(){
     const origin = (document.getElementById('fl-arr-origin')?.value||'').trim().toUpperCase();
     const eta    = document.getElementById('fl-arr-eta')?.value||'';
     if(!number||!origin||!eta){ toast('Completa número, origen y ETA',true); return; }
-    data = {type:'arr', number, origin, eta, station, days, notes, updatedAt:Date.now()};
+    data = {type:'arr', number, origin, eta, etaM:toMin(eta), station, days, notes, ac, updatedAt:Date.now()};
   } else {
     const number = (document.getElementById('fl-dep-num')?.value||'').trim().toUpperCase();
     const dest   = (document.getElementById('fl-dep-dest')?.value||'').trim().toUpperCase();
     const etd    = document.getElementById('fl-dep-etd')?.value||'';
     if(!number||!dest||!etd){ toast('Completa número, destino y ETD',true); return; }
-    data = {type:'dep', number, dest, etd, station, days, notes, updatedAt:Date.now()};
+    data = {type:'dep', number, dest, etd, etdM:toMin(etd), station, days, notes, ac, updatedAt:Date.now()};
   }
 
   const col = FB.db.collection(AIRLINE_ID).doc(station).collection('flights');
   if(editId){ await col.doc(editId).update(data); }
-  else { await col.add(data); }
+  else { await col.add({...data, createdAt:Date.now()}); }
   toast('✅ '+(flType==='arr'?'🛬 Llegada':'🛫 Salida')+' '+data.number+' guardado');
   closeFlightModal();
   loadFlights(station);
+  renderFlightsView();
 }
 
 
@@ -5740,6 +6249,16 @@ function quickEditTimes(taskId, ac){
 
 function _flightEdit(id){ openFlightModal(flightsData.find(function(f){return f.id===id;})); }
 function _flightDel(id,st){ deleteFlight(id,st); }
+async function _genFlightOTs(id, st){
+  const fl = flightsData.find(f=>f.id===id);
+  if(!fl){ toast('Vuelo no encontrado',true); return; }
+  function toMin(hhmm){ if(!hhmm) return 0; const [h,m]=(hhmm||'00:00').split(':').map(Number); return h*60+m; }
+  let etaM = fl.etaM || toMin(fl.eta);
+  let etdM = fl.etdM || toMin(fl.etd);
+  if(!etaM && etdM) etaM = Math.max(0, etdM - 60); // llegada sin ETA → ETA = ETD - 60min
+  if(etaM && !etdM) etdM = etaM + 60;              // salida sin ETD → ETD = ETA + 60min
+  await autoGenerateFlightOTs(st||activeStation(), {...fl, flightDocId:fl.id, etaM, etdM});
+}
 
 async function renderFlightsView(){
   console.log('[Vuelos] renderFlightsView start, role:', currentRole);
@@ -5839,10 +6358,16 @@ async function renderFlightsView(){
         parts.push('<div style="font-size:9px;color:'+(isArr?'#1e40af':'#166534')+';font-weight:700">'+(isArr?'🛬 ETA':'🛫 ETD')+'</div>');
         parts.push('<div style="font-size:20px;font-weight:900;color:#0f2a66">'+esc(isArr?(f.eta||'--:--'):(f.etd||'--:--'))+'</div>');
         parts.push('</div>');
-        // Edit/delete for superadmin
+        // AC badge
+        if(f.ac) parts.push('<div style="font-size:9px;font-weight:700;color:#0f2a66;background:#eff6ff;padding:2px 6px;border-radius:4px;margin-top:4px;text-align:center">✈ '+esc(f.ac)+'</div>');
+        else      parts.push('<div style="font-size:9px;color:#94a3b8;background:#f8fafc;padding:2px 6px;border-radius:4px;margin-top:4px;text-align:center">Sin matrícula</div>');
+        // Edit/delete/generate for superadmin
         if(canEdit){
-          parts.push('<div style="display:flex;gap:4px;margin-top:5px;justify-content:flex-end">');
-          parts.push('<button data-flid="'+f.id+'" onclick="_flightEdit(this.dataset.flid)" style="background:'+(isArr?'#eff6ff':'#f0fdf4')+';border:none;color:'+(isArr?'#1e40af':'#166534')+';padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px">✏️ Editar</button>');
+          parts.push('<div style="display:flex;gap:4px;margin-top:5px;justify-content:flex-end;flex-wrap:wrap">');
+          if(f.ac){
+            parts.push('<button onclick="_genFlightOTs(\''+f.id+'\',\''+esc(station)+'\')" style="background:#f5f3ff;border:none;color:#7c3aed;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;font-weight:700">⚡ Gantt</button>');
+          }
+          parts.push('<button data-flid="'+f.id+'" onclick="_flightEdit(this.dataset.flid)" style="background:'+(isArr?'#eff6ff':'#f0fdf4')+';border:none;color:'+(isArr?'#1e40af':'#166534')+';padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px">✏️</button>');
           parts.push('<button data-flid="'+f.id+'" data-flst="'+station+'" onclick="_flightDel(this.dataset.flid,this.dataset.flst)" style="background:#fee2e2;border:none;color:#dc2626;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px">🗑</button>');
           parts.push('</div>');
         }
@@ -5881,7 +6406,7 @@ function openFlightModal(f, type){
   document.getElementById('fl-section-arr').style.display = flType==='arr' ? 'block' : 'none';
   document.getElementById('fl-section-dep').style.display = flType==='dep' ? 'block' : 'none';
   // Set title
-  document.getElementById('flight-modal-title').textContent = 
+  document.getElementById('flight-modal-title').textContent =
     f ? (flType==='arr' ? '✏️ Editar llegada' : '✏️ Editar salida')
       : (flType==='arr' ? '🛬 Nueva llegada' : '🛫 Nueva salida');
   // Fill fields
@@ -5896,6 +6421,15 @@ function openFlightModal(f, type){
     set('fl-dep-etd',    f?.etd||'');
   }
   set('fl-notes', f?.notes||'');
+  // Populate AC select with registered aircraft
+  const flAc = document.getElementById('fl-ac');
+  if(flAc){
+    flAc.innerHTML = '<option value="">— Sin asignar —</option>' +
+      (aircraft||[]).map(a=>`<option value="${esc(a.reg)}"${f?.ac===a.reg?' selected':''}>${esc(a.reg)}</option>`).join('');
+    if(f?.ac && !aircraft.find(a=>a.reg===f.ac)){
+      flAc.innerHTML += `<option value="${esc(f.ac)}" selected>${esc(f.ac)}</option>`;
+    }
+  }
   document.querySelectorAll('.day-btn').forEach(b=>{
     b.classList.toggle('active',(f?.days||[]).includes(parseInt(b.dataset.day)));
   });

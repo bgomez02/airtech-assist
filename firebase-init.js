@@ -50,6 +50,7 @@ try {
     PLANS:   (st) => root().doc(st).collection('plans'),
     DOCS:    (st) => root().doc(st).collection('documents'),
     HIST:    (st) => root().doc(st).collection('history'),
+    DEFS:    (st) => root().doc(st).collection('diferidos'),
     // Usuarios: /airtechassist/config/users
     USERS:   () => root().doc('config').collection('users'),
   };

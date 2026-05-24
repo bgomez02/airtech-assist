@@ -307,6 +307,7 @@
     <button class="tab"    id="TAB-flights" onclick="switchTab('flights')" style="display:none">✈️ Vuelos</button>
     <button class="tab"    id="TAB-catalog" onclick="switchTab('catalog')" style="display:none">📚 Catálogo</button>
 <button class="tab"    id="TAB-mcc"       onclick="switchTab('mcc')"       style="display:none">🌐 MCC</button>
+<button class="tab"    id="TAB-diferidos" onclick="switchTab('diferidos')"  style="display:none">⏳ Diferidos <span id="def-tab-badge" style="display:none;background:#dc2626;color:#fff;font-size:9px;font-weight:800;padding:1px 5px;border-radius:8px;margin-left:3px">0</span></button>
 <button class="tab"    id="TAB-platform"  onclick="switchTab('platform')"  style="display:none">🏢 Clientes</button>
   </div>
 
@@ -591,6 +592,62 @@
         <span id="mcc-pilot-count" style="background:#dbeafe;color:#1e40af;font-size:11px;font-weight:700;padding:3px 12px;border-radius:20px">0 pendientes</span>
       </div>
       <div id="mcc-pilot-messages"></div>
+    </div>
+  </div>
+
+  <!-- VIEW DIFERIDOS -->
+  <div class="view" id="VIEW-diferidos">
+    <div class="card" style="margin-bottom:12px">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:14px">
+        <div style="font-size:15px;font-weight:800;color:#0f2a66">⏳ Gestión de Diferidos MEL / CDL</div>
+        <button onclick="openCreateDef()" class="btn btn-blue" id="btn-new-def" style="gap:6px">+ Nuevo Diferido</button>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px">
+        <div class="kpi"><div class="kpi-lbl">Abiertos</div><div class="kpi-val" id="def-kpi-open" style="color:#1d4ed8">0</div></div>
+        <div class="kpi" style="border-color:#fecaca"><div class="kpi-lbl">Vencidos</div><div class="kpi-val" style="color:#dc2626" id="def-kpi-exp">0</div></div>
+        <div class="kpi" style="border-color:#fed7aa"><div class="kpi-lbl">≤ 3 días</div><div class="kpi-val" style="color:#c2410c" id="def-kpi-soon">0</div></div>
+        <div class="kpi" style="border-color:#bbf7d0"><div class="kpi-lbl">Cerrados</div><div class="kpi-val" style="color:#166534" id="def-kpi-closed">0</div></div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+      <button onclick="defSetFilter('open')"    class="btn" id="def-filter-open"    style="background:#0f2a66;color:#fff;border-color:#0f2a66">Abiertos</button>
+      <button onclick="defSetFilter('expired')" class="btn" id="def-filter-expired">Vencidos</button>
+      <button onclick="defSetFilter('closed')"  class="btn" id="def-filter-closed">Cerrados</button>
+      <button onclick="defSetFilter('all')"     class="btn" id="def-filter-all">Todos</button>
+      <input class="fi" id="def-search" placeholder="🔍 Matrícula, ATA, descripción..." oninput="renderDiferidos()" style="flex:1;min-width:180px;max-width:300px;padding:7px 10px;font-size:12px">
+    </div>
+    <div id="def-list"></div>
+    <!-- Estadísticas -->
+    <div style="margin-top:14px">
+      <button onclick="defToggleStats()" class="btn" id="def-stats-toggle" style="font-size:11px;color:#6d28d9;background:#f5f3ff;border-color:#c4b5fd;gap:6px">📈 Ver estadísticas de aperturas / cierres</button>
+      <div id="def-stats-wrap" style="display:none;margin-top:10px">
+        <div class="card">
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+            <div style="font-size:13px;font-weight:700;color:#0f2a66">📈 Diferidos por día</div>
+            <div style="display:flex;gap:6px;align-items:center">
+              <label class="lbl" style="margin:0;white-space:nowrap">Últimos</label>
+              <select class="fi" id="def-stats-range" onchange="renderDefStats()" style="width:90px;padding:4px 8px;font-size:12px">
+                <option value="14">14 días</option>
+                <option value="30" selected>30 días</option>
+                <option value="60">60 días</option>
+                <option value="90">90 días</option>
+              </select>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin-bottom:14px">
+            <div class="kpi"><div class="kpi-lbl">Total abiertos</div><div class="kpi-val" id="def-stat-total-open" style="color:#1d4ed8">0</div></div>
+            <div class="kpi"><div class="kpi-lbl">Total cerrados</div><div class="kpi-val" id="def-stat-total-closed" style="color:#166534">0</div></div>
+            <div class="kpi"><div class="kpi-lbl">Promedio días abierto</div><div class="kpi-val" id="def-stat-avg-days" style="color:#92400e">—</div></div>
+            <div class="kpi"><div class="kpi-lbl">Tasa cierre</div><div class="kpi-val" id="def-stat-rate" style="color:#6d28d9">—</div></div>
+          </div>
+          <div style="position:relative;height:220px"><canvas id="def-chart-daily"></canvas></div>
+        </div>
+      </div>
+    </div>
+    <!-- Recurrencias -->
+    <div id="def-recurrencias-wrap" style="display:none;margin-top:14px">
+      <div style="font-size:12px;font-weight:700;color:#7c3aed;margin-bottom:8px">🔁 Fallas recurrentes</div>
+      <div id="def-recurrencias"></div>
     </div>
   </div>
 
@@ -1171,7 +1228,129 @@
   </div>
 </div>
 
+<!-- MODAL CREAR DIFERIDO -->
+<div class="overlay" id="modal-def-create">
+  <div class="modal" style="max-width:520px;max-height:92vh;overflow-y:auto">
+    <div class="mhdr">
+      <div class="mtitle">⏳ Nuevo Diferido MEL / CDL</div>
+      <button class="mclose" onclick="document.getElementById('modal-def-create').classList.remove('open')">✕</button>
+    </div>
+    <div class="fgrid">
+      <div><label class="lbl">Aeronave *</label><select class="fi" id="def-create-ac"></select></div>
+      <div><label class="lbl">Estación *</label><select class="fi" id="def-create-station"></select></div>
+    </div>
+    <div class="fgrid">
+      <div>
+        <label class="lbl">Tipo</label>
+        <select class="fi" id="def-create-type">
+          <option value="MEL">MEL — Minimum Equipment List</option>
+          <option value="CDL">CDL — Configuration Deviation List</option>
+          <option value="NEF">NEF — Non-Essential Equipment</option>
+          <option value="AD">AD — Airworthiness Directive</option>
+        </select>
+      </div>
+      <div>
+        <label class="lbl">Categoría MEL *</label>
+        <select class="fi" id="def-create-category" onchange="defCalcExpiry()">
+          <option value="A">A — Antes del próximo vuelo</option>
+          <option value="B" selected>B — 3 días calendario</option>
+          <option value="C">C — 10 días calendario</option>
+          <option value="D">D — 120 días calendario</option>
+        </select>
+      </div>
+    </div>
+    <div class="fgrid">
+      <div><label class="lbl">Capítulo ATA</label><input class="fi" id="def-create-ata" type="text" placeholder="Ej: 28-10" oninput="this.value=this.value.toUpperCase()"></div>
+      <div><label class="lbl">Referencia MEL / ítem</label><input class="fi" id="def-create-melref" type="text" placeholder="Ej: 28-10-01A" oninput="this.value=this.value.toUpperCase()"></div>
+    </div>
+    <div class="fgrid">
+      <div><label class="lbl">Fecha de apertura *</label><input class="fi" id="def-create-open" type="date" onchange="defCalcExpiry()"></div>
+      <div><label class="lbl">Vencimiento (auto)</label><input class="fi" id="def-create-expiry" type="text" readonly style="background:#f8fafc;color:#64748b;cursor:default"></div>
+    </div>
+    <div style="font-size:11px;font-weight:600;padding:6px 10px;border-radius:8px;background:#fffbeb;color:#92400e;margin-bottom:8px;min-height:28px" id="def-create-expiry-disp"></div>
+    <div class="fg">
+      <label class="lbl">Descripción de la falla *</label>
+      <textarea class="fi" id="def-create-desc" rows="3" placeholder="Sistema afectado, condición observada, falla reportada..." style="resize:vertical;text-transform:uppercase" oninput="this.value=this.value.toUpperCase()"></textarea>
+    </div>
+    <div class="fg">
+      <label class="lbl">Restricciones operacionales / observaciones</label>
+      <textarea class="fi" id="def-create-notes" rows="2" placeholder="Placards requeridos, procedimientos MEL aplicables, restricciones de vuelo..." style="resize:vertical"></textarea>
+    </div>
+    <div style="font-size:11px;color:#dc2626;min-height:16px;margin-bottom:8px" id="def-create-err"></div>
+    <button class="submibtn" id="def-create-submit" onclick="submitCreateDef()">💾 Crear Diferido</button>
+  </div>
+</div>
 
+<!-- MODAL PARTES DIFERIDO -->
+<div class="overlay" id="modal-def-parts">
+  <div class="modal" style="max-width:580px;max-height:92vh;overflow-y:auto">
+    <div class="mhdr">
+      <div class="mtitle">📦 Partes requeridas — <span id="def-parts-title"></span></div>
+      <button class="mclose" onclick="document.getElementById('modal-def-parts').classList.remove('open')">✕</button>
+    </div>
+    <div style="font-size:11px;color:#64748b;margin-bottom:12px;font-style:italic" id="def-parts-def-desc"></div>
+
+    <!-- Lista de partes actual -->
+    <div id="def-parts-list" style="margin-bottom:14px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;min-height:48px"></div>
+
+    <!-- Agregar nueva parte -->
+    <div style="background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:10px;padding:12px 14px">
+      <div style="font-size:11px;font-weight:700;color:#0f2a66;margin-bottom:10px">➕ Agregar parte</div>
+      <div class="fgrid" style="grid-template-columns:1.2fr 1.8fr 0.5fr;gap:8px;margin-bottom:8px">
+        <div>
+          <label class="lbl">Número de parte (P/N)</label>
+          <input class="fi" id="def-parts-pn" type="text" placeholder="Dejar vacío si en T/S" oninput="this.value=this.value.toUpperCase()" style="font-family:monospace">
+        </div>
+        <div>
+          <label class="lbl">Descripción *</label>
+          <input class="fi" id="def-parts-desc" type="text" placeholder="Nombre del componente" oninput="this.value=this.value.toUpperCase()">
+        </div>
+        <div>
+          <label class="lbl">Cant</label>
+          <input class="fi" id="def-parts-qty" type="number" min="1" value="1">
+        </div>
+      </div>
+      <div style="display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap">
+        <div style="flex:1;min-width:160px">
+          <label class="lbl">ETA estimada (si no está disponible)</label>
+          <input class="fi" id="def-parts-eta" type="date">
+        </div>
+        <div style="font-size:10px;color:#64748b;max-width:200px;line-height:1.4;padding-bottom:2px">Sin P/N → <b>T/S</b><br>P/N + ETA → <b>En tránsito</b><br>P/N sin ETA → <b>Disponible</b></div>
+        <button onclick="addDefPart()" class="btn btn-blue" style="padding:8px 16px;font-size:12px;flex-shrink:0">+ Agregar</button>
+      </div>
+    </div>
+
+    <div style="font-size:11px;color:#dc2626;min-height:16px;margin:8px 0" id="def-parts-err"></div>
+    <button class="submibtn" id="def-parts-submit" onclick="saveDefParts()">💾 Guardar partes</button>
+  </div>
+</div>
+
+<!-- MODAL CERRAR DIFERIDO -->
+<div class="overlay" id="modal-def-close">
+  <div class="modal" style="max-width:460px">
+    <div class="mhdr">
+      <div class="mtitle">✅ Cerrar Diferido</div>
+      <button class="mclose" onclick="document.getElementById('modal-def-close').classList.remove('open')">✕</button>
+    </div>
+    <div style="background:#f1f5f9;border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:12px">
+      <div style="display:flex;gap:14px;flex-wrap:wrap">
+        <div><span style="color:#64748b">Diferido:</span> <b id="def-close-num" style="font-family:monospace"></b></div>
+        <div><span style="color:#64748b">Aeronave:</span> <b id="def-close-ac"></b></div>
+      </div>
+      <div style="margin-top:6px;color:#1e293b;font-size:11px;font-weight:500" id="def-close-desc"></div>
+    </div>
+    <div class="fg">
+      <label class="lbl">Acción correctiva realizada *</label>
+      <textarea class="fi" id="def-close-action" rows="4" placeholder="Describe detalladamente la acción: componente reemplazado, inspección realizada, referencia AMM, etc." style="resize:vertical;text-transform:uppercase" oninput="this.value=this.value.toUpperCase()"></textarea>
+    </div>
+    <div class="fgrid">
+      <div><label class="lbl">Referencia (WO / AMM / Task card)</label><input class="fi" id="def-close-ref" type="text" placeholder="Ej: WO-2026-0541" oninput="this.value=this.value.toUpperCase()"></div>
+      <div><label class="lbl">Fecha de cierre</label><input class="fi" id="def-close-date" type="date"></div>
+    </div>
+    <div style="font-size:11px;color:#dc2626;min-height:16px;margin-bottom:8px" id="def-close-err"></div>
+    <button class="submibtn" id="def-close-submit" onclick="submitCloseDef()">✅ Confirmar Cierre</button>
+  </div>
+</div>
 
 <div class="toast" id="toast-el"></div>
 
@@ -1511,6 +1690,14 @@
       </div>
     </div>
 
+    <!-- MATRÍCULA (shared) -->
+    <div style="margin-bottom:12px">
+      <label class="lbl">Matrícula (AC)</label>
+      <select class="fi" id="fl-ac" style="font-family:monospace;font-weight:700">
+        <option value="">— Sin asignar —</option>
+      </select>
+    </div>
+
     <!-- DÍAS (shared) -->
     <div style="margin-bottom:16px">
       <label class="lbl">Días que opera</label>
@@ -1534,7 +1721,7 @@
       💾 Guardar vuelo
     </button>
   </div>
-</div><!-- /modal-flight -->d>
+</div><!-- /modal-flight -->
 <meta charset="UTF-8">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
@@ -1544,81 +1731,3 @@
 <!-- v1778703254 -->
 <!-- Firebase Compat SDK (funciona sin módulos ES) -->
 
-<!-- MODAL VUELO -->
-<div class="overlay" id="modal-flight">
-  <div class="modal" style="max-width:520px">
-    <div class="mhdr">
-      <div class="mtitle" id="flight-modal-title">✈️ Nuevo vuelo</div>
-      <button class="mclose" onclick="closeFlightModal()">✕</button>
-    </div>
-
-    <!-- LLEGADA -->
-    <div style="background:#eff6ff;border-radius:10px;padding:14px;margin-bottom:12px">
-      <div style="font-size:11px;font-weight:800;color:#1e40af;margin-bottom:10px">🛬 LLEGADA A PUJ</div>
-      <div class="fgrid">
-        <div>
-          <label class="lbl">Vuelo llegada *</label>
-          <input class="fi" id="fl-arr-number" type="text" placeholder="DM5100"
-            style="font-family:monospace;text-transform:uppercase"
-            oninput="this.value=this.value.toUpperCase()">
-        </div>
-        <div>
-          <label class="lbl">Origen *</label>
-          <input class="fi" id="fl-origin" type="text" placeholder="COR"
-            style="font-family:monospace;text-transform:uppercase;text-align:center"
-            oninput="this.value=this.value.toUpperCase()">
-        </div>
-      </div>
-      <div style="margin-top:8px">
-        <label class="lbl">Hora ETA *</label>
-        <input class="fi" id="fl-eta" type="time" style="max-width:140px">
-      </div>
-    </div>
-
-    <!-- SALIDA -->
-    <div style="background:#f0fdf4;border-radius:10px;padding:14px;margin-bottom:12px">
-      <div style="font-size:11px;font-weight:800;color:#166534;margin-bottom:10px">🛫 SALIDA DE PUJ</div>
-      <div class="fgrid">
-        <div>
-          <label class="lbl">Vuelo salida *</label>
-          <input class="fi" id="fl-dep-number" type="text" placeholder="DM5101"
-            style="font-family:monospace;text-transform:uppercase"
-            oninput="this.value=this.value.toUpperCase()">
-        </div>
-        <div>
-          <label class="lbl">Destino *</label>
-          <input class="fi" id="fl-dest" type="text" placeholder="MIA"
-            style="font-family:monospace;text-transform:uppercase;text-align:center"
-            oninput="this.value=this.value.toUpperCase()">
-        </div>
-      </div>
-      <div style="margin-top:8px">
-        <label class="lbl">Hora ETD *</label>
-        <input class="fi" id="fl-etd" type="time" style="max-width:140px">
-      </div>
-    </div>
-
-    <!-- DÍAS -->
-    <div style="margin-bottom:16px">
-      <label class="lbl">Días que opera</label>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px" id="fl-days-btns">
-        <button type="button" class="day-btn" data-day="1" onclick="toggleFlDay(this)">Lun</button>
-        <button type="button" class="day-btn" data-day="2" onclick="toggleFlDay(this)">Mar</button>
-        <button type="button" class="day-btn" data-day="3" onclick="toggleFlDay(this)">Mié</button>
-        <button type="button" class="day-btn" data-day="4" onclick="toggleFlDay(this)">Jue</button>
-        <button type="button" class="day-btn" data-day="5" onclick="toggleFlDay(this)">Vie</button>
-        <button type="button" class="day-btn" data-day="6" onclick="toggleFlDay(this)">Sáb</button>
-        <button type="button" class="day-btn" data-day="0" onclick="toggleFlDay(this)">Dom</button>
-      </div>
-    </div>
-
-    <!-- NOTAS -->
-    <div style="margin-bottom:16px">
-      <label class="lbl">Notas (opcional)</label>
-      <input class="fi" id="fl-notes" type="text" placeholder="Ej: Solo temporada alta">
-    </div>
-
-    <button class="btn btn-blue" style="width:100%;padding:12px;font-size:14px" onclick="submitFlight()">
-      💾 Guardar vuelo
-    </button>
-  </div>>
