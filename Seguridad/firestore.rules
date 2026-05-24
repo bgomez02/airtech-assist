@@ -166,37 +166,36 @@ service cloud.firestore {
     // ════════════════════════════════════════════════════════════
 
     match /{clientId}/config {
-      allow read:   if isMember(clientId);
+      allow read:   if isMember(clientId) || isSuperAdmin();
       allow create: if isMember(clientId);
-      allow update: if isMemberAdmin(clientId);
+      allow update: if isMemberAdmin(clientId) || isSuperAdmin();
       allow delete: if false;
     }
 
     match /{clientId}/config/users/{userId} {
-      allow list:   if isMember(clientId);
-      allow get:    if isMember(clientId);
-      // Primer usuario al registrarse (sin registry previo — se valida por uid)
+      allow list:   if isMember(clientId) || isSuperAdmin();
+      allow get:    if isMember(clientId) || isSuperAdmin();
       allow create: if request.auth != null && userId == request.auth.uid;
-      allow update: if isMemberAdmin(clientId) ||
+      allow update: if isMemberAdmin(clientId) || isSuperAdmin() ||
                        (isMember(clientId) && userId == request.auth.uid &&
                         request.resource.data.diff(resource.data)
                           .affectedKeys().hasOnly(['uid', 'lastLogin']));
-      allow delete: if isMemberAdmin(clientId);
+      allow delete: if isMemberAdmin(clientId) || isSuperAdmin();
     }
 
     match /{clientId}/config/stations/{id} {
-      allow read:  if isMember(clientId);
-      allow write: if isMemberAdmin(clientId);
+      allow read:  if isMember(clientId) || isSuperAdmin();
+      allow write: if isMemberAdmin(clientId) || isSuperAdmin();
     }
 
     match /{clientId}/config/aircraft/{id} {
-      allow read:  if isMember(clientId);
-      allow write: if isMemberAdmin(clientId);
+      allow read:  if isMember(clientId) || isSuperAdmin();
+      allow write: if isMemberAdmin(clientId) || isSuperAdmin();
     }
 
     match /{clientId}/config/{collection}/{id} {
-      allow read:  if isMember(clientId);
-      allow write: if isMemberAdmin(clientId);
+      allow read:  if isMember(clientId) || isSuperAdmin();
+      allow write: if isMemberAdmin(clientId) || isSuperAdmin();
     }
 
     match /{clientId}/audit/logs/{id} {
